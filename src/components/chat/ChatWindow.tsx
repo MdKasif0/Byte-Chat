@@ -40,6 +40,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   const router = useRouter();
   const [chat, setChat] = useState<Chat | null>(null);
   const [otherUser, setOtherUser] = useState<MemberProfile | null>(null);
+  const [otherUserProfile, setOtherUserProfile] = useState<UserProfile | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [isGroupInfoOpen, setGroupInfoOpen] = useState(false);
   
@@ -62,7 +63,8 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
         const chatData = { id: doc.id, ...doc.data() } as Chat;
         setChat(chatData);
         if (!chatData.isGroup) {
-          setOtherUser(chatData.memberProfiles.find(m => m.uid !== user.uid) || null);
+          const otherMember = chatData.memberProfiles.find(m => m.uid !== user.uid) || null;
+          setOtherUser(otherMember);
         } else {
           setOtherUser(null);
         }
@@ -73,6 +75,17 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     });
     return () => unsub();
   }, [chatId, user, router]);
+
+  useEffect(() => {
+    if (otherUser?.uid) {
+        const unsub = onSnapshot(doc(db, "users", otherUser.uid), (userDoc) => {
+            if (userDoc.exists()) {
+                setOtherUserProfile(userDoc.data() as UserProfile);
+            }
+        });
+        return () => unsub();
+    }
+  }, [otherUser]);
 
   useEffect(() => {
     if (scrollAreaRef.current) {
@@ -118,10 +131,6 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     .map(uid => chat.memberProfiles.find(p => p.uid === uid)?.displayName)
     .filter(Boolean) || [];
 
-  const typingText = typingUsers.length > 0
-    ? `${typingUsers.slice(0, 2).join(', ')}${typingUsers.length > 2 ? ' and others' : ''} are typing...`
-    : (otherUser?.isOnline ? 'Online' : 'Offline');
-
   if (!chat || (!otherUser && !chat.isGroup)) {
     return (
       <div className="flex h-full flex-col bg-card/50 md:rounded-xl">
@@ -139,11 +148,19 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     )
   }
 
+  const isOnline = otherUserProfile?.isOnline;
+  const statusDisplay = chat.isGroup
+    ? `${chat.members.length} members`
+    : otherUserProfile?.status || (isOnline ? 'Online' : 'Offline');
+  const isStatusOnline = statusDisplay === 'Online';
+  
   const headerDetails = {
-    name: chat.isGroup ? chat.groupName : otherUser?.displayName,
-    avatarUrl: chat.isGroup ? chat.groupAvatarURL : otherUser?.photoURL,
-    status: chat.isGroup ? `${chat.members.length} members` : (otherUser?.isOnline ? 'Online' : 'Offline')
+    name: chat.isGroup ? chat.groupName : (otherUserProfile?.displayName || otherUser?.displayName),
+    avatarUrl: chat.isGroup ? chat.groupAvatarURL : (otherUserProfile?.photoURL || otherUser?.photoURL),
+    status: statusDisplay
   }
+  
+  const typingText = `${typingUsers.slice(0, 2).join(', ')}${typingUsers.length > 2 ? ' and others' : ''} are typing...`;
 
   return (
     <>
@@ -162,7 +179,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
                 {typingUsers.length > 0 ? (
                   <motion.p key="typing" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="text-primary">{typingText}</motion.p>
                 ) : (
-                   <motion.p key="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={otherUser?.isOnline ? 'text-green-500' : ''}>{headerDetails.status}</motion.p>
+                   <motion.p key="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={isStatusOnline && !chat.isGroup ? 'text-green-500' : ''}>{headerDetails.status}</motion.p>
                 )}
               </AnimatePresence>
             </div>

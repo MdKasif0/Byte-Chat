@@ -77,7 +77,7 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
         uid: user.uid,
         displayName: phoneNumber, 
         email: user.email,
-        about: "Hey there! I am using ByteChat.",
+        status: "Hey there! I am using ByteChat.",
         phone: phoneNumber,
         links: [],
         photoURL: user.photoURL || `https://placehold.co/200x200.png?text=${phoneNumber.charAt(0).toUpperCase()}`,

@@ -5,7 +5,7 @@ export interface UserProfile {
   displayName: string;
   email: string;
   photoURL: string;
-  about: string;
+  status: string;
   phone?: string;
   links?: string[];
   lastSeen: Timestamp;

@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { updateProfile } from "firebase/auth";
 import { doc, getDoc, setDoc, writeBatch, Timestamp } from "firebase/firestore";
-import { ArrowLeft, User, Info, Phone, Link2 as LinkIcon, Pencil, Camera } from "lucide-react";
+import { ArrowLeft, User, Phone, Link2 as LinkIcon, Pencil, Camera, BookText } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
 import { auth, db } from "@/lib/firebase/config";
@@ -29,8 +29,8 @@ const phoneSchema = z.object({
     message: "This phone number is too long.",
   }),
 });
-const aboutSchema = z.object({
-  about: z.string().max(150, "About cannot be longer than 150 characters."),
+const statusSchema = z.object({
+  status: z.string().max(150, "Status cannot be longer than 150 characters."),
 });
 
 export default function ProfilePage() {
@@ -39,13 +39,13 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isPhoneDialogOpen, setPhoneDialogOpen] = useState(false);
-  const [isAboutDialogOpen, setAboutDialogOpen] = useState(false);
+  const [isStatusDialogOpen, setStatusDialogOpen] = useState(false);
 
   const phoneForm = useForm<z.infer<typeof phoneSchema>>({
     resolver: zodResolver(phoneSchema),
   });
-  const aboutForm = useForm<z.infer<typeof aboutSchema>>({
-    resolver: zodResolver(aboutSchema),
+  const statusForm = useForm<z.infer<typeof statusSchema>>({
+    resolver: zodResolver(statusSchema),
   });
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export default function ProfilePage() {
             displayName: user.displayName || 'No number',
             email: user.email || '',
             photoURL: user.photoURL || `https://placehold.co/200x200.png`,
-            about: 'Hey there! I am using ByteChat.',
+            status: 'Hey there! I am using ByteChat.',
             isOnline: true,
             lastSeen: new Timestamp(0, 0), // Placeholder
           };
@@ -72,11 +72,11 @@ export default function ProfilePage() {
         
         setProfile(profileData);
         phoneForm.reset({ phone: profileData.displayName });
-        aboutForm.reset({ about: profileData.about });
+        statusForm.reset({ status: profileData.status });
       };
       fetchProfile();
     }
-  }, [user, phoneForm, aboutForm]);
+  }, [user, phoneForm, statusForm]);
 
   const onPhoneSubmit = async (values: z.infer<typeof phoneSchema>) => {
     if (!user || !profile) return;
@@ -130,18 +130,18 @@ export default function ProfilePage() {
     }
   };
   
-  const onAboutSubmit = async (values: z.infer<typeof aboutSchema>) => {
+  const onStatusSubmit = async (values: z.infer<typeof statusSchema>) => {
     if (!user) return;
     try {
       const userDocRef = doc(db, "users", user.uid);
-      await setDoc(userDocRef, { about: values.about }, { merge: true });
+      await setDoc(userDocRef, { status: values.status }, { merge: true });
       
-      setProfile((p) => (p ? { ...p, about: values.about } : null));
-      toast({ title: "Success", description: `About section updated.` });
-      setAboutDialogOpen(false);
+      setProfile((p) => (p ? { ...p, status: values.status } : null));
+      toast({ title: "Success", description: `Status updated.` });
+      setStatusDialogOpen(false);
     } catch (error) {
-      console.error("Error updating about:", error);
-      toast({ variant: "destructive", title: "Error", description: `Could not update about.` });
+      console.error("Error updating status:", error);
+      toast({ variant: "destructive", title: "Error", description: `Could not update status.` });
     }
   };
 
@@ -209,10 +209,10 @@ export default function ProfilePage() {
                 </div>
             </InfoRow>
 
-            <InfoRow icon={<Info className="text-muted-foreground" />} label="About">
+            <InfoRow icon={<BookText className="text-muted-foreground" />} label="Status">
                  <div className="flex items-center justify-between w-full">
-                    <p className="text-sm text-foreground/80 pr-2">{profile.about}</p>
-                    <Button variant="ghost" size="icon" onClick={() => setAboutDialogOpen(true)}><Pencil className="h-4 w-4" /></Button>
+                    <p className="text-sm text-foreground/80 pr-2">{profile.status}</p>
+                    <Button variant="ghost" size="icon" onClick={() => setStatusDialogOpen(true)}><Pencil className="h-4 w-4" /></Button>
                 </div>
             </InfoRow>
 
@@ -256,26 +256,26 @@ export default function ProfilePage() {
         </DialogContent>
       </Dialog>
       
-      {/* Edit About Dialog */}
-       <Dialog open={isAboutDialogOpen} onOpenChange={setAboutDialogOpen}>
+      {/* Edit Status Dialog */}
+       <Dialog open={isStatusDialogOpen} onOpenChange={setStatusDialogOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Edit About</DialogTitle></DialogHeader>
-          <Form {...aboutForm}>
-            <form onSubmit={aboutForm.handleSubmit(onAboutSubmit)} className="space-y-4">
+          <DialogHeader><DialogTitle>Edit Status</DialogTitle></DialogHeader>
+          <Form {...statusForm}>
+            <form onSubmit={statusForm.handleSubmit(onStatusSubmit)} className="space-y-4">
               <FormField
-                control={aboutForm.control}
-                name="about"
+                control={statusForm.control}
+                name="status"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>About</FormLabel>
-                    <FormControl><Textarea {...field} className="min-h-[100px]" /></FormControl>
+                    <FormLabel>Status</FormLabel>
+                    <FormControl><Textarea {...field} className="min-h-[100px]" placeholder="What's on your mind?" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
               <DialogFooter>
                 <DialogClose asChild><Button type="button" variant="ghost">Cancel</Button></DialogClose>
-                <Button type="submit" disabled={aboutForm.formState.isSubmitting}>Save</Button>
+                <Button type="submit" disabled={statusForm.formState.isSubmitting}>Save</Button>
               </DialogFooter>
             </form>
           </Form>
