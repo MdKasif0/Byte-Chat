@@ -3,8 +3,10 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { collection, query, where, orderBy } from "firebase/firestore";
-import { Search, Check, Users, File, Video, Image as ImageIcon, Mic, MessagesSquare } from "lucide-react";
+import { Search, Check, Users, File, Video, Image as ImageIcon, Mic, MessagesSquare, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import { useState, useMemo, useCallback } from "react";
+import debounce from "lodash.debounce";
 
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase/config";
@@ -16,11 +18,13 @@ import { createChat } from "@/lib/chat";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
 
 export default function ChatPage() {
     const { user } = useAuth();
     const router = useRouter();
     const { toast } = useToast();
+    const [searchTerm, setSearchTerm] = useState("");
 
     const chatsQuery = user ? query(
         collection(db, "chats"), 
@@ -37,6 +41,32 @@ export default function ChatPage() {
     
     const { data: users, loading: usersLoading } = useCollection<UserProfile>(usersQuery);
     
+    const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setSearchTerm(e.target.value);
+    };
+
+    const debouncedSearchHandler = useCallback(debounce(handleSearchChange, 300), []);
+
+    const filteredUsers = useMemo(() => {
+        if (!users) return [];
+        if (!searchTerm) return users;
+        return users.filter(u =>
+            u.displayName.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [users, searchTerm]);
+
+    const filteredChats = useMemo(() => {
+        if (!chats) return [];
+        if (!searchTerm) return chats;
+        return chats.filter(chat => {
+            if (chat.isGroup) {
+                return chat.groupName?.toLowerCase().includes(searchTerm.toLowerCase());
+            }
+            const otherMember = chat.memberProfiles.find(member => member.uid !== user!.uid);
+            return otherMember?.displayName.toLowerCase().includes(searchTerm.toLowerCase());
+        });
+    }, [chats, searchTerm, user]);
+
     const handleStartChat = async (targetUserId: string) => {
         if (!user) {
           toast({ variant: "destructive", title: "You must be logged in." });
@@ -50,62 +80,73 @@ export default function ChatPage() {
           console.error("Error creating chat:", error);
           toast({ variant: "destructive", title: "Failed to start chat." });
         }
-      };
+    };
+    
+    const isLoading = chatsLoading || usersLoading;
 
   return (
     <div className="h-full flex flex-col bg-background">
-        <header className="p-4 sticky top-0 bg-background/80 backdrop-blur-sm z-10">
+        <header className="p-4 sticky top-0 bg-background/80 backdrop-blur-sm z-10 space-y-4">
             <div className="flex items-center justify-between">
                 <h1 className="text-3xl font-bold">Chat</h1>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" size="icon" className="rounded-full"><Search className="h-5 w-5" /></Button>
-                </div>
+            </div>
+             <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                <Input
+                    placeholder="Search for people or chats..."
+                    className="pl-10"
+                    onChange={debouncedSearchHandler}
+                />
             </div>
         </header>
 
         <main className="flex-grow px-4 space-y-8">
-            <section>
-                <div className="flex justify-between items-center mb-3">
-                    <h2 className="text-lg font-semibold">Start a chat</h2>
+            {isLoading ? (
+                <div className="flex items-center justify-center p-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
-                <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
-                    {usersLoading ? (
-                        Array.from({ length: 5 }).map((_, i) => <UserSkeleton key={i} />)
-                    ) : users && users.length > 0 ? (
-                        users.map((u: UserProfile) => (
-                            <button key={u.uid} onClick={() => handleStartChat(u.uid)} className="flex flex-col items-center gap-2 shrink-0 text-center w-20">
-                                <div className="relative">
-                                    <Avatar className="h-16 w-16">
-                                        <AvatarImage src={u.photoURL} alt={u.displayName} />
-                                        <AvatarFallback>{u.displayName?.[0]?.toUpperCase()}</AvatarFallback>
-                                    </Avatar>
-                                    {u.isOnline && <div className="absolute bottom-0 right-0 h-4 w-4 rounded-full bg-green-500 border-2 border-background" />}
-                                </div>
-                                <span className="text-sm font-medium truncate w-full">{u.displayName}</span>
-                            </button>
-                        ))
-                    ) : (
-                        <p className="text-sm text-muted-foreground w-full py-6 text-center">No other users found.</p>
-                    )}
-                </div>
-            </section>
+            ) : searchTerm ? null : (
+                 <section>
+                    <div className="flex justify-between items-center mb-3">
+                        <h2 className="text-lg font-semibold">Start a chat</h2>
+                    </div>
+                    <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
+                        {users && users.length > 0 ? (
+                            users.map((u: UserProfile) => (
+                                <button key={u.uid} onClick={() => handleStartChat(u.uid)} className="flex flex-col items-center gap-2 shrink-0 text-center w-20">
+                                    <div className="relative">
+                                        <Avatar className="h-16 w-16">
+                                            <AvatarImage src={u.photoURL} alt={u.displayName} />
+                                            <AvatarFallback>{u.displayName?.[0]?.toUpperCase()}</AvatarFallback>
+                                        </Avatar>
+                                        {u.isOnline && <div className="absolute bottom-0 right-0 h-4 w-4 rounded-full bg-green-500 border-2 border-background" />}
+                                    </div>
+                                    <span className="text-sm font-medium truncate w-full">{u.displayName}</span>
+                                </button>
+                            ))
+                        ) : (
+                            <p className="text-sm text-muted-foreground w-full py-6 text-center">No other users found.</p>
+                        )}
+                    </div>
+                </section>
+            )}
             
             <section>
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground mb-4">
                     <MessagesSquare className="h-4 w-4" />
-                    Recent Chats
+                    {searchTerm ? "Search Results" : "Recent Chats"}
                 </h3>
                 <div className="space-y-1">
-                    {chatsLoading ? (
-                         Array.from({ length: 3 }).map((_, i) => <ChatSkeleton key={i} />)
-                    ) : chats && chats.length > 0 ? (
-                        chats.map((chat) => (
+                    {filteredChats.length > 0 ? (
+                        filteredChats.map((chat) => (
                             <ChatItem key={chat.id} chat={chat} currentUserId={user!.uid} />
                         ))
                     ) : (
                         <div className="text-center py-16 bg-muted/50 rounded-2xl">
-                            <p className="font-semibold">No chats yet</p>
-                            <p className="text-sm text-muted-foreground mt-1">Start a conversation with someone from above!</p>
+                            <p className="font-semibold">{searchTerm ? "No results found" : "No chats yet"}</p>
+                            <p className="text-sm text-muted-foreground mt-1">
+                                {searchTerm ? "Try a different search term." : "Start a conversation with someone from above!"}
+                            </p>
                         </div>
                     )}
                 </div>

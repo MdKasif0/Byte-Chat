@@ -4,11 +4,11 @@ import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { saveAs } from "file-saver";
 import { format } from "date-fns";
-import { Check, CheckCheck, CornerUpLeft, Edit, SmilePlus, Trash2, MoreHorizontal, FileText, Download, PlayCircle, PauseCircle } from "lucide-react";
+import { Check, CheckCheck, CornerUpLeft, Edit, SmilePlus, Trash2, MoreHorizontal, FileText, Download, PlayCircle, PauseCircle, Star } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import type { Message, MemberProfile } from "@/lib/types";
-import { deleteMessage, toggleReaction, updateMessage } from "@/lib/chat";
+import { deleteMessage, toggleReaction, updateMessage, toggleStarMessage } from "@/lib/chat";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DropdownMenu,
@@ -21,6 +21,14 @@ import { Input } from "../ui/input";
 import { useToast } from "@/hooks/use-toast";
 
 const EMOJI_REACTIONS = ["👍", "❤️", "😂", "😯", "😢", "🙏"];
+
+type MessageBubbleProps = {
+    message: Message;
+    onReply: (message: Message) => void;
+    onMediaClick: (messageId: string) => void;
+    isGroupChat?: boolean;
+    senderProfile?: MemberProfile | null;
+};
 
 const AudioPlayer = ({ src }: { src: string }) => {
     const audioRef = useRef<HTMLAudioElement>(null);
@@ -164,11 +172,21 @@ export default function MessageBubble({ message, onReply, onMediaClick, isGroupC
 
   const isSender = message.senderId === user?.uid;
   const isRead = message.readBy.length > 1;
+  const isStarred = message.starredBy?.includes(user?.uid || "") || false;
 
   const handleReaction = async (emoji: string) => {
     if (!user) return;
     await toggleReaction(message.chatId, message.id, emoji, user.uid);
   };
+
+  const handleStar = async () => {
+    if (!user) return;
+    try {
+        await toggleStarMessage(message.chatId, message.id, user.uid);
+    } catch (error) {
+        toast({ variant: 'destructive', title: "Failed to star message" });
+    }
+  }
   
   const handleEdit = async () => {
       if (editedContent.trim() === '' || editedContent === message.content) {
@@ -251,6 +269,7 @@ export default function MessageBubble({ message, onReply, onMediaClick, isGroupC
         
             {/* Timestamp and read receipt */}
             <div className="flex items-center gap-1 self-end mt-1">
+                {isStarred && <Star className="h-3 w-3 text-yellow-400 fill-yellow-400" />}
                 {message.isEdited && !isEditing && <span className="text-xs text-muted-foreground/80">(edited)</span>}
                 <span className={cn(
                     "text-xs",
@@ -273,6 +292,10 @@ export default function MessageBubble({ message, onReply, onMediaClick, isGroupC
                 <DropdownMenuItem onSelect={() => onReply(message)}>
                     <CornerUpLeft className="mr-2 h-4 w-4" />
                     <span>Reply</span>
+                </DropdownMenuItem>
+                 <DropdownMenuItem onSelect={handleStar}>
+                    <Star className="mr-2 h-4 w-4" />
+                    <span>{isStarred ? "Unstar" : "Star"}</span>
                 </DropdownMenuItem>
                 <Popover>
                     <PopoverTrigger asChild>

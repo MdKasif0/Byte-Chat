@@ -265,3 +265,23 @@ export async function updateChatWallpaper(chatId: string, wallpaperURL: string) 
     const chatRef = doc(db, "chats", chatId);
     await updateDoc(chatRef, { wallpaperURL });
 }
+
+export async function toggleStarMessage(chatId: string, messageId: string, userId: string) {
+    const messageRef = doc(db, `chats/${chatId}/messages`, messageId);
+    const messageSnap = await getDoc(messageRef);
+
+    if (messageSnap.exists()) {
+        const messageData = messageSnap.data();
+        const starredBy = messageData.starredBy || [];
+
+        if (starredBy.includes(userId)) {
+            await updateDoc(messageRef, {
+                starredBy: arrayRemove(userId)
+            });
+        } else {
+            await updateDoc(messageRef, {
+                starredBy: arrayUnion(userId)
+            });
+        }
+    }
+}

@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { doc, onSnapshot } from "firebase/firestore";
-import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2, Mic, Camera, StopCircle, Trash2, Bell, BellOff, Wallpaper } from "lucide-react";
+import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2, Mic, Camera, StopCircle, Trash2, Bell, BellOff, Wallpaper, Search } from "lucide-react";
 import debounce from "lodash.debounce";
 
 import { useAuth } from "@/context/AuthContext";
@@ -365,7 +365,9 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
                 ) : (
                     <DropdownMenuItem>View Contact</DropdownMenuItem>
                 )}
-                 <DropdownMenuItem>Search</DropdownMenuItem>
+                 <DropdownMenuItem onSelect={() => toast({ title: "Coming Soon!", description: "In-chat search is under development."})}>
+                    <Search className="mr-2 h-4 w-4" /> Search
+                 </DropdownMenuItem>
                  <DropdownMenuItem onSelect={() => setWallpaperDialogOpen(true)}>
                     <Wallpaper className="mr-2 h-4 w-4" /> Wallpaper
                 </DropdownMenuItem>

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronRight, LogOut, Palette, UserCircle, Moon, Sun, Lock, Fingerprint, KeyRound, Trash2, MessageSquareQuote } from "lucide-react";
+import { ChevronRight, LogOut, Palette, UserCircle, Moon, Sun, Lock, Fingerprint, KeyRound, Trash2, MessageSquareQuote, Star, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
@@ -47,7 +47,7 @@ export default function SettingsPage() {
     try {
       await signOut(auth);
       router.push("/login");
-    } catch (error: any) => {
+    } catch (error: any) {
       toast({
         variant: "destructive",
         title: "Logout Failed",
@@ -100,6 +100,25 @@ export default function SettingsPage() {
                 </div>
             </div>
             
+            {/* Data Management Section */}
+            <div>
+                <h2 className="px-4 pt-4 pb-2 text-lg font-semibold">Data Management</h2>
+                <div className="bg-card rounded-xl border divide-y divide-border">
+                     <SettingsItem
+                        icon={<Star className="h-6 w-6" />}
+                        title="Starred Messages"
+                        description="View your starred messages"
+                        onClick={() => toast({ title: "Coming Soon!", description: "This feature is under development."})}
+                    />
+                    <SettingsItem
+                        icon={<Archive className="h-6 w-6" />}
+                        title="Archived Chats"
+                        description="View your archived chats"
+                        onClick={() => toast({ title: "Coming Soon!", description: "This feature is under development."})}
+                    />
+                </div>
+            </div>
+
             {/* Support & Feedback Section */}
             <div>
                 <h2 className="px-4 pt-4 pb-2 text-lg font-semibold">Support & Feedback</h2>

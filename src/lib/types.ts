@@ -49,6 +49,7 @@ export interface Message {
     content: string;
   };
   isEdited?: boolean;
+  starredBy?: string[];
   // File attachment fields
   fileURL?: string;
   fileName?: string;
