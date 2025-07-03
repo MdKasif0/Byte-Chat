@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { collection, query, where, orderBy } from "firebase/firestore";
 import { Search, Pin, Check } from "lucide-react";
@@ -8,8 +8,10 @@ import { format } from "date-fns";
 
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase/config";
-import type { Chat } from "@/lib/types";
+import type { Chat, UserProfile } from "@/lib/types";
 import { useCollection } from "@/hooks/use-collection";
+import { useToast } from "@/hooks/use-toast";
+import { createChat } from "@/lib/chat";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -18,9 +20,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ChatPage() {
     const { user } = useAuth();
-
-    // This would be populated with real data in a full implementation
-    const onlineUsers: any[] = [];
+    const router = useRouter();
+    const { toast } = useToast();
 
     const chatsQuery = user ? query(
         collection(db, "chats"), 
@@ -28,8 +29,30 @@ export default function ChatPage() {
         orderBy("lastMessage.timestamp", "desc")
     ) : null;
     
-    const { data: chats, loading } = useCollection<Chat>(chatsQuery);
+    const { data: chats, loading: chatsLoading } = useCollection<Chat>(chatsQuery);
+
+    const usersQuery = user ? query(
+        collection(db, "users"),
+        where("uid", "!=", user.uid)
+    ) : null;
     
+    const { data: users, loading: usersLoading } = useCollection<UserProfile>(usersQuery);
+    
+    const handleStartChat = async (targetUserId: string) => {
+        if (!user) {
+          toast({ variant: "destructive", title: "You must be logged in." });
+          return;
+        }
+    
+        try {
+          const chatId = await createChat(user.uid, targetUserId);
+          router.push(`/chat/${chatId}`);
+        } catch (error) {
+          console.error("Error creating chat:", error);
+          toast({ variant: "destructive", title: "Failed to start chat." });
+        }
+      };
+
   return (
     <div className="h-full flex flex-col bg-background">
         <header className="p-4 sticky top-0 bg-background/80 backdrop-blur-sm z-10">
@@ -45,23 +68,26 @@ export default function ChatPage() {
         <main className="flex-grow px-4 space-y-8">
             <section>
                 <div className="flex justify-between items-center mb-3">
-                    <h2 className="text-lg font-semibold">Online</h2>
-                    <Link href="#" className="text-sm text-primary font-semibold">View All</Link>
+                    <h2 className="text-lg font-semibold">Start a chat</h2>
                 </div>
                 <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
-                    {onlineUsers.length > 0 ? onlineUsers.map((u: any) => (
-                        <div key={u.name} className="flex flex-col items-center gap-2 shrink-0">
-                            <div className="relative">
-                                <Avatar className="h-16 w-16">
-                                    <AvatarImage src={u.avatar} alt={u.name} />
-                                    <AvatarFallback>{u.name[0]}</AvatarFallback>
-                                </Avatar>
-                                <div className="absolute bottom-0 right-0 h-4 w-4 rounded-full bg-green-500 border-2 border-background" />
-                            </div>
-                            <span className="text-sm font-medium">{u.name}</span>
-                        </div>
-                    )) : (
-                        <p className="text-sm text-muted-foreground w-full py-6 text-center">No users are online right now.</p>
+                    {usersLoading ? (
+                        Array.from({ length: 5 }).map((_, i) => <UserSkeleton key={i} />)
+                    ) : users && users.length > 0 ? (
+                        users.map((u: UserProfile) => (
+                            <button key={u.uid} onClick={() => handleStartChat(u.uid)} className="flex flex-col items-center gap-2 shrink-0 text-center w-20">
+                                <div className="relative">
+                                    <Avatar className="h-16 w-16">
+                                        <AvatarImage src={u.photoURL} alt={u.displayName} />
+                                        <AvatarFallback>{u.displayName?.[0]?.toUpperCase()}</AvatarFallback>
+                                    </Avatar>
+                                    {u.isOnline && <div className="absolute bottom-0 right-0 h-4 w-4 rounded-full bg-green-500 border-2 border-background" />}
+                                </div>
+                                <span className="text-sm font-medium truncate w-full">{u.displayName}</span>
+                            </button>
+                        ))
+                    ) : (
+                        <p className="text-sm text-muted-foreground w-full py-6 text-center">No other users found.</p>
                     )}
                 </div>
             </section>
@@ -79,7 +105,7 @@ export default function ChatPage() {
                         Pinned Chats
                     </h3>
                     <div className="space-y-1">
-                        {loading ? (
+                        {chatsLoading ? (
                              Array.from({ length: 3 }).map((_, i) => <ChatSkeleton key={i} />)
                         ) : chats && chats.length > 0 ? (
                             chats.map((chat) => (
@@ -88,7 +114,7 @@ export default function ChatPage() {
                         ) : (
                             <div className="text-center py-16 bg-muted/50 rounded-2xl">
                                 <p className="font-semibold">No chats yet</p>
-                                <p className="text-sm text-muted-foreground mt-1">Tap the + button to start a new conversation.</p>
+                                <p className="text-sm text-muted-foreground mt-1">Start a conversation with someone from above!</p>
                             </div>
                         )}
                     </div>
@@ -97,6 +123,15 @@ export default function ChatPage() {
         </main>
     </div>
   );
+}
+
+function UserSkeleton() {
+    return (
+        <div className="flex flex-col items-center gap-2 shrink-0">
+            <Skeleton className="h-16 w-16 rounded-full" />
+            <Skeleton className="h-4 w-12" />
+        </div>
+    )
 }
 
 function ChatSkeleton() {
