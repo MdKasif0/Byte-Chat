@@ -6,12 +6,13 @@ import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronRight, LogOut, Palette, UserCircle, Moon, Sun, Lock, Fingerprint, KeyRound, Trash2 } from "lucide-react";
+import { ChevronRight, LogOut, Palette, UserCircle, Moon, Sun, Lock, Fingerprint, KeyRound, Trash2, MessageSquareQuote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import ChangePasswordDialog from "@/components/settings/ChangePasswordDialog";
 import DeleteAccountDialog from "@/components/settings/DeleteAccountDialog";
+import FeedbackDialog from "@/components/settings/FeedbackDialog";
 import { useTheme } from "next-themes";
 
 function SettingsItem({ icon, title, description, onClick, control, isDestructive = false }: { icon: React.ReactNode, title: string, description: string, onClick?: () => void, control?: React.ReactNode, isDestructive?: boolean }) {
@@ -38,6 +39,7 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const [isChangePasswordOpen, setChangePasswordOpen] = useState(false);
   const [isDeleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [isFeedbackOpen, setFeedbackOpen] = useState(false);
   const { theme, setTheme, resolvedTheme } = useTheme();
 
 
@@ -45,7 +47,7 @@ export default function SettingsPage() {
     try {
       await signOut(auth);
       router.push("/login");
-    } catch (error: any) {
+    } catch (error: any) => {
       toast({
         variant: "destructive",
         title: "Logout Failed",
@@ -97,6 +99,19 @@ export default function SettingsPage() {
                     />
                 </div>
             </div>
+            
+            {/* Support & Feedback Section */}
+            <div>
+                <h2 className="px-4 pt-4 pb-2 text-lg font-semibold">Support & Feedback</h2>
+                <div className="bg-card rounded-xl border">
+                    <SettingsItem
+                        icon={<MessageSquareQuote className="h-6 w-6" />}
+                        title="Submit Feedback"
+                        description="Report bugs or suggest new features"
+                        onClick={() => setFeedbackOpen(true)}
+                    />
+                </div>
+            </div>
 
              {/* Security Section */}
             <div>
@@ -142,6 +157,7 @@ export default function SettingsPage() {
     </div>
     <ChangePasswordDialog open={isChangePasswordOpen} onOpenChange={setChangePasswordOpen} />
     <DeleteAccountDialog open={isDeleteAccountOpen} onOpenChange={setDeleteAccountOpen} />
+    <FeedbackDialog open={isFeedbackOpen} onOpenChange={setFeedbackOpen} />
     </>
   );
 }
