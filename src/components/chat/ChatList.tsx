@@ -42,9 +42,9 @@ export default function ChatList() {
         <ScrollArea className="h-full">
           <SidebarMenu>
             {chats.map((chat) => (
-              <SidebarMenuItem key={chat.id} asChild className="p-0">
-                <Link href={`/chat/${chat.id}`} className="w-full">
-                  <SidebarMenuButton className="h-auto p-2 w-full" size="lg" isActive={pathname === `/chat/${chat.id}`}>
+              <SidebarMenuItem key={chat.id} className="p-0">
+                <SidebarMenuButton asChild className="h-auto p-2 w-full justify-start" size="lg" isActive={pathname === `/chat/${chat.id}`}>
+                  <Link href={`/chat/${chat.id}`}>
                     <div className="relative">
                         <Avatar className="h-10 w-10">
                             <AvatarImage src={chat.avatar} alt={chat.name} data-ai-hint={chat.aiHint} />
@@ -59,8 +59,8 @@ export default function ChatList() {
                       </div>
                       <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
                     </div>
-                  </SidebarMenuButton>
-                </Link>
+                  </Link>
+                </SidebarMenuButton>
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
