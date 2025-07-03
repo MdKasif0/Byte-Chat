@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { type User, onAuthStateChanged } from "firebase/auth";
-import { auth } from "@/lib/firebase/config";
+import { auth, db } from "@/lib/firebase/config";
+import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
 
 type AuthContextType = {
   user: User | null;
@@ -21,12 +22,47 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       setLoading(false);
+
+      if (user) {
+        const userStatusRef = doc(db, 'users', user.uid);
+        try {
+            await updateDoc(userStatusRef, { 
+                isOnline: true,
+                lastSeen: serverTimestamp()
+            });
+        } catch (error) {
+            // User document might not exist yet during profile setup
+            // It will be created in ProfileSetupDialog
+        }
+      }
     });
 
-    return () => unsubscribe();
+    const handleBeforeUnload = async (event: BeforeUnloadEvent) => {
+        if (auth.currentUser) {
+            const userStatusRef = doc(db, 'users', auth.currentUser.uid);
+            await updateDoc(userStatusRef, {
+                isOnline: false,
+                lastSeen: serverTimestamp()
+            });
+        }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+        unsubscribe();
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        if (auth.currentUser) {
+            const userStatusRef = doc(db, 'users', auth.currentUser.uid);
+            updateDoc(userStatusRef, {
+                isOnline: false,
+                lastSeen: serverTimestamp()
+            });
+        }
+    };
   }, []);
 
   return (

@@ -1,5 +1,19 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
+import { PlusCircle, Search } from "lucide-react";
+
+import { useAuth } from "@/context/AuthContext";
+import { db } from "@/lib/firebase/config";
+import type { Chat } from "@/lib/types";
+import { useCollection } from "@/hooks/use-collection";
+
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   SidebarHeader,
   SidebarContent,
@@ -9,18 +23,27 @@ import {
   SidebarInput,
   SidebarFooter
 } from "@/components/ui/sidebar";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { PlusCircle, Search } from "lucide-react";
-import Link from "next/link";
+import NewChatDialog from "./NewChatDialog";
 import UserNav from "./UserNav";
-import { usePathname } from "next/navigation";
-import { Button } from "../ui/button";
-
-const chats: any[] = [];
+import { formatDistanceToNowStrict } from "date-fns";
 
 export default function ChatList() {
+    const { user } = useAuth();
     const pathname = usePathname();
+    const [isNewChatDialogOpen, setNewChatDialogOpen] = useState(false);
+
+    const chatsQuery = user ? query(
+        collection(db, "chats"), 
+        where("members", "array-contains", user.uid),
+        orderBy("lastMessage.timestamp", "desc")
+    ) : null;
+    
+    const { data: chats, loading } = useCollection<Chat>(chatsQuery);
+
+    const getOtherMember = (chat: Chat) => {
+        return chat.memberProfiles.find(member => member.uid !== user?.uid);
+    }
+    
   return (
     <>
       <SidebarHeader className="border-b">
@@ -35,44 +58,58 @@ export default function ChatList() {
       </SidebarHeader>
       <SidebarContent>
         <ScrollArea className="h-full">
-          {chats.length > 0 ? (
+          {loading ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">Loading chats...</div>
+          ) : chats && chats.length > 0 ? (
             <SidebarMenu>
-              {chats.map((chat) => (
-                <SidebarMenuItem key={chat.id}>
-                  <SidebarMenuButton asChild className="h-auto p-2 w-full justify-start" size="lg" isActive={pathname === `/chat/${chat.id}`}>
-                    <Link href={`/chat/${chat.id}`}>
-                      <div className="relative">
-                          <Avatar className="h-10 w-10">
-                              <AvatarImage src={chat.avatar} alt={chat.name} data-ai-hint={chat.aiHint} />
-                              <AvatarFallback>{chat.name.charAt(0)}</AvatarFallback>
-                          </Avatar>
-                          {chat.online && <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white" />}
-                      </div>
-                      <div className="flex-grow text-left overflow-hidden">
-                        <div className="flex justify-between items-center">
-                          <span className="font-semibold truncate">{chat.name}</span>
-                          <span className="text-xs text-muted-foreground shrink-0">{chat.time}</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
-                      </div>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {chats.map((chat) => {
+                const otherMember = getOtherMember(chat);
+                if (!otherMember) return null;
+
+                return (
+                    <SidebarMenuItem key={chat.id}>
+                        <SidebarMenuButton asChild className="h-auto p-2 w-full justify-start" size="lg" isActive={pathname === `/chat/${chat.id}`}>
+                            <Link href={`/chat/${chat.id}`}>
+                                <div className="relative">
+                                    <Avatar className="h-10 w-10">
+                                        <AvatarImage src={otherMember.photoURL} alt={otherMember.displayName} data-ai-hint="person" />
+                                        <AvatarFallback>{otherMember.displayName.charAt(0)}</AvatarFallback>
+                                    </Avatar>
+                                    {otherMember.isOnline && <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-background" />}
+                                </div>
+                                <div className="flex-grow text-left overflow-hidden">
+                                    <div className="flex justify-between items-center">
+                                    <span className="font-semibold truncate">{otherMember.displayName}</span>
+                                    {chat.lastMessage?.timestamp && (
+                                        <span className="text-xs text-muted-foreground shrink-0">
+                                            {formatDistanceToNowStrict(chat.lastMessage.timestamp.toDate())}
+                                        </span>
+                                    )}
+                                    </div>
+                                    <p className="text-sm text-muted-foreground truncate">
+                                        {chat.lastMessage?.content || "No messages yet"}
+                                    </p>
+                                </div>
+                            </Link>
+                        </SidebarMenuButton>
+                    </SidebarMenuItem>
+                )
+              })}
             </SidebarMenu>
           ) : (
             <div className="p-4 text-center text-sm text-muted-foreground">
-              No chats yet.
+              No chats yet. Start a new conversation!
             </div>
           )}
         </ScrollArea>
       </SidebarContent>
       <SidebarFooter>
-        <Button variant="outline" className="w-full justify-start">
+        <Button variant="outline" className="w-full justify-start" onClick={() => setNewChatDialogOpen(true)}>
             <PlusCircle className="mr-2 h-4 w-4" />
             New Chat
         </Button>
       </SidebarFooter>
+      <NewChatDialog open={isNewChatDialogOpen} onOpenChange={setNewChatDialogOpen} />
     </>
   );
 }

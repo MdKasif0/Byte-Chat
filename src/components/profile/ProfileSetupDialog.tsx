@@ -4,7 +4,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { updateProfile } from "firebase/auth";
-import { doc, getDoc, writeBatch } from "firebase/firestore";
+import { doc, getDoc, writeBatch, serverTimestamp } from "firebase/firestore";
+import * as React from "react";
+import { X, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +16,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogPortal,
+  DialogOverlay,
+  DialogClose,
 } from "@/components/ui/dialog";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Form,
   FormControl,
@@ -27,7 +33,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { auth, db } from "@/lib/firebase/config";
 import { useAuth } from "@/context/AuthContext";
-import { ShieldCheck } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
   username: z.string().min(3, {
@@ -61,7 +67,7 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
       return;
     }
 
-    const username = values.username;
+    const username = values.username.toLowerCase();
     const userRef = doc(db, "users", user.uid);
     const usernameRef = doc(db, "usernames", username);
 
@@ -75,18 +81,24 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
       const batch = writeBatch(db);
       
       batch.set(userRef, { 
+        uid: user.uid,
         displayName: username, 
         email: user.email,
         about: "Hey there! I am using ByteChat.",
         phone: "",
         links: [],
-        photoURL: user.photoURL || "",
+        photoURL: user.photoURL || `https://placehold.co/200x200.png?text=${username.charAt(0).toUpperCase()}`,
+        isOnline: true,
+        lastSeen: serverTimestamp(),
       });
       batch.set(usernameRef, { uid: user.uid });
       
       await batch.commit();
 
-      await updateProfile(user, { displayName: username });
+      await updateProfile(user, { 
+        displayName: username,
+        photoURL: user.photoURL || `https://placehold.co/200x200.png?text=${username.charAt(0).toUpperCase()}`
+      });
 
       toast({
         title: "Welcome!",
@@ -146,12 +158,12 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
   );
 }
 
-// Add hideCloseButton to DialogContent props
 declare module "@radix-ui/react-dialog" {
     interface DialogContentProps {
         hideCloseButton?: boolean;
     }
 }
+
 const DialogContentOld = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { hideCloseButton?: boolean }
@@ -176,9 +188,3 @@ const DialogContentOld = React.forwardRef<
     </DialogPrimitive.Content>
   </DialogPortal>
 ));
-import * as React from "react"
-import * as DialogPrimitive from "@radix-ui/react-dialog"
-import { X } from "lucide-react"
-import { cn } from "@/lib/utils";
-const DialogPortal = DialogPrimitive.Portal;
-const DialogOverlay = DialogPrimitive.Overlay;

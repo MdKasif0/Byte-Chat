@@ -10,7 +10,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { ArrowLeft, User, Info, Phone, Link2 as LinkIcon, Pencil, Camera } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
-import { db } from "@/lib/firebase/config";
+import { auth, db } from "@/lib/firebase/config";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,14 +20,7 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Skeleton } from "@/components/ui/skeleton";
-
-type ProfileData = {
-  displayName: string;
-  email: string;
-  photoURL: string;
-  about: string;
-  phone: string;
-};
+import type { UserProfile } from "@/lib/types";
 
 const nameSchema = z.object({
   name: z.string().min(3, "Name must be at least 3 characters.").max(50, "Name cannot be longer than 50 characters."),
@@ -37,10 +30,10 @@ const aboutSchema = z.object({
 });
 
 export default function ProfilePage() {
-  const { user, loading } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isNameDialogOpen, setNameDialogOpen] = useState(false);
   const [isAboutDialogOpen, setAboutDialogOpen] = useState(false);
 
@@ -57,7 +50,7 @@ export default function ProfilePage() {
         const userDocRef = doc(db, "users", user.uid);
         const userDocSnap = await getDoc(userDocRef);
         if (userDocSnap.exists()) {
-          const data = userDocSnap.data() as ProfileData;
+          const data = userDocSnap.data() as UserProfile;
           setProfile(data);
           nameForm.reset({ name: data.displayName });
           aboutForm.reset({ about: data.about });
@@ -69,7 +62,7 @@ export default function ProfilePage() {
     }
   }, [user, router, nameForm, aboutForm]);
 
-  const handleFieldUpdate = async (field: keyof ProfileData, value: string) => {
+  const handleFieldUpdate = async (field: keyof UserProfile, value: string) => {
     if (!user || !profile) return;
     try {
       const userDocRef = doc(db, "users", user.uid);
@@ -101,7 +94,7 @@ export default function ProfilePage() {
     if(success) setAboutDialogOpen(false);
   };
 
-  if (loading || !profile) {
+  if (!profile) {
     return (
        <div className="w-full min-h-screen p-4 md:p-6 space-y-6">
           <div className="flex items-center gap-4">
