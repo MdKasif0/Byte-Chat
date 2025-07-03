@@ -27,5 +27,5 @@ export default function ProfileLayout({
     );
   }
 
-  return <main className="flex min-h-screen w-full items-center justify-center bg-background p-4">{children}</main>;
+  return <main className="min-h-screen w-full bg-background text-foreground">{children}</main>;
 }
