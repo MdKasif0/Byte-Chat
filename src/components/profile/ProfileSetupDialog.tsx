@@ -77,7 +77,7 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
       batch.set(userRef, { 
         displayName: username, 
         email: user.email,
-        about: "Hey there! I am using Cryptochat.",
+        about: "Hey there! I am using ByteChat.",
         phone: "",
         links: [],
         photoURL: user.photoURL || "",
@@ -114,7 +114,7 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <ShieldCheck className="h-8 w-8" />
             </div>
-            <DialogTitle className="text-2xl font-headline">Welcome to Cryptochat</DialogTitle>
+            <DialogTitle className="text-2xl font-headline">Welcome to ByteChat</DialogTitle>
             <DialogDescription>
             Let's set up your profile. Choose a unique username.
             </DialogDescription>

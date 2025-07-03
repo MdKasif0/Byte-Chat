@@ -25,7 +25,7 @@ export default function ChatList() {
     <>
       <SidebarHeader className="border-b">
         <div className="flex w-full items-center justify-between">
-          <h1 className="text-xl font-bold font-headline">Cryptochat</h1>
+          <h1 className="text-xl font-bold font-headline">ByteChat</h1>
           <UserNav />
         </div>
         <div className="relative">
@@ -38,7 +38,7 @@ export default function ChatList() {
           {chats.length > 0 ? (
             <SidebarMenu>
               {chats.map((chat) => (
-                <SidebarMenuItem key={chat.id} className="p-0">
+                <SidebarMenuItem key={chat.id}>
                   <SidebarMenuButton asChild className="h-auto p-2 w-full justify-start" size="lg" isActive={pathname === `/chat/${chat.id}`}>
                     <Link href={`/chat/${chat.id}`}>
                       <div className="relative">

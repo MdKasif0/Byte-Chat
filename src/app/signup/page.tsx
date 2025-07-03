@@ -67,7 +67,7 @@ export default function SignupPage() {
           </div>
           <CardTitle className="text-2xl font-headline">Create an Account</CardTitle>
           <CardDescription>
-            Join Cryptochat for secure messaging.
+            Join ByteChat for secure messaging.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -4,12 +4,12 @@ import { AuthProvider } from '@/context/AuthContext';
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: 'Cryptochat',
-  description: 'A secure PWA chat application.',
-  applicationName: "Cryptochat",
+  title: 'ByteChat',
+  description: 'A modern PWA chat application.',
+  applicationName: "ByteChat",
   appleWebApp: {
     capable: true,
-    title: "Cryptochat",
+    title: "ByteChat",
     statusBarStyle: "default",
   },
   formatDetection: {
