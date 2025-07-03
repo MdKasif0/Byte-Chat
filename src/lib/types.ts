@@ -19,6 +19,7 @@ export interface Chat {
   typing: string[];
   lastMessage?: Message;
   createdAt: Timestamp;
+  unreadCount?: number;
 }
 
 export interface Message {

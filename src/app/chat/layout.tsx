@@ -1,11 +1,11 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import ChatLayout from "@/components/chat/ChatLayout";
 import ProfileSetupDialog from "@/components/profile/ProfileSetupDialog";
 import { Loader2 } from "lucide-react";
+import BottomNavBar from "@/components/BottomNavBar";
 
 export default function ChatAppLayout({
   children,
@@ -14,7 +14,11 @@ export default function ChatAppLayout({
 }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const [isSetupDialogOpen, setSetupDialogOpen] = useState(false);
+
+  // Show Nav Bar on the main chat page, but not on individual conversation pages.
+  const showNavBar = pathname === '/chat';
 
   useEffect(() => {
     if (!loading) {
@@ -45,7 +49,8 @@ export default function ChatAppLayout({
   return (
     <>
       <ProfileSetupDialog open={isSetupDialogOpen} onOpenChange={setSetupDialogOpen} />
-      <ChatLayout>{children}</ChatLayout>
+      <div className={showNavBar ? "pb-28" : ""}>{children}</div>
+      {showNavBar && <BottomNavBar />}
     </>
   );
 }
