@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
@@ -17,5 +17,18 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
+
+if (typeof window !== "undefined") {
+    enableIndexedDbPersistence(db)
+    .catch((err) => {
+        if (err.code == 'failed-precondition') {
+            // This can happen if multiple tabs are open.
+        } else if (err.code == 'unimplemented') {
+            // The browser doesn't support all of the
+            // features required to enable persistence
+        }
+    });
+}
+
 
 export { app, auth, db, storage };
