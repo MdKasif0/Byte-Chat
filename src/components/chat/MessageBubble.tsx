@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { saveAs } from "file-saver";
 import { format } from "date-fns";
-import { Check, CheckCheck, CornerUpLeft, Edit, SmilePlus, Trash2, MoreHorizontal, FileText, Download, PlayCircle } from "lucide-react";
+import { Check, CheckCheck, CornerUpLeft, Edit, SmilePlus, Trash2, MoreHorizontal, FileText, Download, PlayCircle, PauseCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import type { Message, MemberProfile } from "@/lib/types";
@@ -22,12 +22,71 @@ import { useToast } from "@/hooks/use-toast";
 
 const EMOJI_REACTIONS = ["👍", "❤️", "😂", "😯", "😢", "🙏"];
 
-type MessageBubbleProps = {
-  message: Message;
-  onReply: (message: Message) => void;
-  onMediaClick: (messageId: string) => void;
-  isGroupChat?: boolean;
-  senderProfile?: MemberProfile;
+const AudioPlayer = ({ src }: { src: string }) => {
+    const audioRef = useRef<HTMLAudioElement>(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [duration, setDuration] = useState(0);
+    const [currentTime, setCurrentTime] = useState(0);
+
+    const handlePlayPause = () => {
+        const audio = audioRef.current;
+        if (!audio) return;
+
+        if (isPlaying) {
+            audio.pause();
+        } else {
+            audio.play().catch(e => console.error("Audio play failed", e));
+        }
+        setIsPlaying(!isPlaying);
+    };
+
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+
+        const setAudioData = () => {
+            setDuration(audio.duration);
+            setCurrentTime(audio.currentTime);
+        };
+
+        const setAudioTime = () => setCurrentTime(audio.currentTime);
+        const onEnded = () => setIsPlaying(false);
+
+        audio.addEventListener('loadedmetadata', setAudioData);
+        audio.addEventListener('timeupdate', setAudioTime);
+        audio.addEventListener('ended', onEnded);
+        
+        return () => {
+            audio.removeEventListener('loadedmetadata', setAudioData);
+            audio.removeEventListener('timeupdate', setAudioTime);
+            audio.removeEventListener('ended', onEnded);
+        };
+    }, []);
+
+    const formatTime = (timeInSeconds: number) => {
+        if (isNaN(timeInSeconds) || timeInSeconds === 0) return '0:00';
+        const minutes = Math.floor(timeInSeconds / 60);
+        const seconds = Math.floor(timeInSeconds % 60);
+        return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+    };
+
+    return (
+        <div className="mt-2 flex items-center gap-2 rounded-lg border bg-black/10 p-2 w-full max-w-xs">
+            <audio ref={audioRef} src={src} preload="metadata" />
+            <Button onClick={handlePlayPause} variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                {isPlaying ? <PauseCircle className="h-6 w-6" /> : <PlayCircle className="h-6 w-6" />}
+            </Button>
+            <div className="flex-grow flex items-center gap-2">
+                <div className="w-full bg-black/20 rounded-full h-1.5">
+                    <div
+                        className="bg-white h-1.5 rounded-full"
+                        style={{ width: `${(currentTime / duration) * 100 || 0}%` }}
+                    />
+                </div>
+                <span className="text-xs w-10 text-right">{formatTime(duration)}</span>
+            </div>
+        </div>
+    );
 };
 
 const MediaAttachment = ({ message, onMediaClick }: Pick<MessageBubbleProps, 'message' | 'onMediaClick'>) => {
@@ -35,6 +94,8 @@ const MediaAttachment = ({ message, onMediaClick }: Pick<MessageBubbleProps, 'me
   
     const isImage = message.fileType.startsWith("image/");
     const isVideo = message.fileType.startsWith("video/");
+    const isAudio = message.fileType.startsWith("audio/");
+    const isVideoClip = isVideo && message.isClip;
   
     if (isImage) {
       return (
@@ -50,6 +111,17 @@ const MediaAttachment = ({ message, onMediaClick }: Pick<MessageBubbleProps, 'me
       );
     }
   
+    if (isVideoClip) {
+        return (
+            <div className="relative mt-2 w-48 h-48 rounded-full overflow-hidden cursor-pointer" onClick={() => onMediaClick(message.id)}>
+                 <video src={message.fileURL} className="w-full h-full object-cover" autoPlay loop muted playsInline />
+                 <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity">
+                    <PlayCircle className="h-10 w-10 text-white" />
+                 </div>
+            </div>
+        )
+    }
+
     if (isVideo) {
       return (
         <div className="relative mt-2 w-full max-w-xs aspect-video rounded-lg overflow-hidden bg-black group/video">
@@ -62,6 +134,10 @@ const MediaAttachment = ({ message, onMediaClick }: Pick<MessageBubbleProps, 'me
             </div>
         </div>
       );
+    }
+
+    if (isAudio) {
+        return <AudioPlayer src={message.fileURL} />;
     }
   
     // Fallback for other file types

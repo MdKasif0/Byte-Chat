@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { doc, onSnapshot } from "firebase/firestore";
-import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2 } from "lucide-react";
+import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2, Mic, Camera, StopCircle, Trash2 } from "lucide-react";
 import debounce from "lodash.debounce";
 
 import { useAuth } from "@/context/AuthContext";
@@ -26,6 +26,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import GroupInfoDialog from "./GroupInfoDialog";
 import MediaViewer from "./MediaViewer";
+import { useToast } from "@/hooks/use-toast";
 
 type ChatWindowProps = {
   chatId: string;
@@ -40,6 +41,7 @@ type MessageFormData = z.infer<typeof messageSchema>;
 export default function ChatWindow({ chatId }: ChatWindowProps) {
   const { user } = useAuth();
   const router = useRouter();
+  const { toast } = useToast();
   const [chat, setChat] = useState<Chat | null>(null);
   const [otherUser, setOtherUser] = useState<MemberProfile | null>(null);
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfile | null>(null);
@@ -51,8 +53,16 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   const [isMediaViewerOpen, setMediaViewerOpen] = useState(false);
   const [mediaViewerStartIndex, setMediaViewerStartIndex] = useState(0);
 
+  const [recordingStatus, setRecordingStatus] = useState<'idle' | 'recording'>('idle');
+  const [recordingType, setRecordingType] = useState<'audio' | 'video' | null>(null);
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const { data: messages, loading: messagesLoading } = useCollection<Message>(
     chatId ? `chats/${chatId}/messages` : null,
@@ -131,14 +141,16 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     if (!user || !chatId || (!data.content && !selectedFile)) return;
     setIsUploading(true);
 
-    let fileInfo: { url: string; name: string; type: string } | undefined;
+    let fileInfo: { url: string; name: string; type: string; isClip?: boolean; } | undefined;
 
     if (selectedFile) {
+      const isClip = selectedFile.name.includes('_clip.');
       const downloadURL = await uploadFile(selectedFile, `chat-files/${chatId}`);
       fileInfo = {
         url: downloadURL,
         name: selectedFile.name,
         type: selectedFile.type,
+        isClip: isClip,
       };
     }
 
@@ -158,6 +170,71 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     if (e.target.files && e.target.files.length > 0) {
       setSelectedFile(e.target.files[0]);
     }
+  }
+
+  const startRecording = async (type: 'audio' | 'video') => {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: type === 'video' ? { facingMode: 'user' } : false,
+        });
+
+        setMediaStream(stream);
+        setRecordingStatus('recording');
+        setRecordingType(type);
+        recordedChunksRef.current = [];
+
+        const mimeType = type === 'video' ? 'video/webm;codecs=vp8,opus' : 'audio/webm;codecs=opus';
+        const recorder = new MediaRecorder(stream, { mimeType });
+        mediaRecorderRef.current = recorder;
+
+        recorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                recordedChunksRef.current.push(event.data);
+            }
+        };
+
+        recorder.onstop = () => {
+            const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+            const file = new File([blob], `${type}_clip.${mimeType.split('/')[1].split(';')[0]}`, { type: mimeType });
+            setSelectedFile(file);
+        };
+        
+        recorder.start();
+        
+        recordingIntervalRef.current = setInterval(() => {
+            setRecordingSeconds(prev => prev + 1);
+        }, 1000);
+
+    } catch (err) {
+        console.error("Error accessing media devices.", err);
+        toast({
+            variant: 'destructive',
+            title: "Permission Denied",
+            description: `Could not access your ${type}. Please check your browser settings.`
+        })
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && recordingStatus === 'recording') {
+        mediaRecorderRef.current.stop();
+    }
+    if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+    }
+    if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+
+    setRecordingStatus('idle');
+    setRecordingSeconds(0);
+    setRecordingType(null);
+    setMediaStream(null);
+  };
+
+  const cancelRecording = () => {
+    stopRecording();
+    setSelectedFile(null);
+    recordedChunksRef.current = [];
   }
 
   const getSenderProfile = (senderId: string) => {
@@ -207,6 +284,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   
   const typingText = `${typingUsers.slice(0, 2).join(', ')}${typingUsers.length > 2 ? ' and others' : ''} are typing...`;
   const isSendDisabled = form.formState.isSubmitting || isUploading || (!form.getValues("content") && !selectedFile);
+  const hasTextContent = !!form.watch("content");
 
   return (
     <>
@@ -284,7 +362,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
 
       <footer className="border-t p-2 md:p-4 bg-card space-y-2">
         <AnimatePresence>
-        {selectedFile && (
+        {selectedFile && recordingStatus === 'idle' && (
             <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -294,6 +372,10 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
                 <div className="flex items-center gap-2 overflow-hidden">
                     {selectedFile.type.startsWith('image/') ? (
                         <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                    ) : selectedFile.type.startsWith('video/') ? (
+                        <Video className="h-5 w-5 text-muted-foreground" />
+                    ) : selectedFile.type.startsWith('audio/') ? (
+                        <Mic className="h-5 w-5 text-muted-foreground" />
                     ) : (
                         <FileText className="h-5 w-5 text-muted-foreground" />
                     )}
@@ -314,19 +396,38 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
         )}
         </AnimatePresence>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex w-full items-center space-x-2">
-          <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
-          <Button variant="ghost" size="icon" type="button" onClick={() => fileInputRef.current?.click()}><Paperclip className="h-5 w-5" /></Button>
-          <Input 
-            {...form.register("content")}
-            placeholder="Type your message..." 
-            className="flex-1" 
-            autoComplete="off"
-            onChange={handleInputChange} 
-          />
-          <Button type="submit" size="icon" disabled={isSendDisabled}>
-            {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-            <span className="sr-only">Send message</span>
-          </Button>
+         {recordingStatus === 'recording' ? (
+             <>
+                <Button variant="ghost" size="icon" type="button" onClick={cancelRecording}><Trash2 className="h-5 w-5 text-destructive" /></Button>
+                <div className="flex-1 flex items-center justify-center gap-2 font-mono text-red-500">
+                    <span className="relative flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                    </span>
+                    {new Date(recordingSeconds * 1000).toISOString().substr(14, 5)}
+                </div>
+                <Button type="button" size="icon" onClick={stopRecording}>
+                    <StopCircle className="h-6 w-6 text-primary" />
+                </Button>
+             </>
+         ) : (
+            <>
+                <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
+                <Button variant="ghost" size="icon" type="button" onClick={() => fileInputRef.current?.click()}><Paperclip className="h-5 w-5" /></Button>
+                <Button variant="ghost" size="icon" type="button" onClick={() => startRecording('video')}><Camera className="h-5 w-5" /></Button>
+                <Input 
+                    {...form.register("content")}
+                    placeholder="Type your message..." 
+                    className="flex-1" 
+                    autoComplete="off"
+                    onChange={handleInputChange} 
+                />
+                <Button type={hasTextContent || selectedFile ? 'submit' : 'button'} size="icon" disabled={isSendDisabled && hasTextContent} onClick={!hasTextContent ? () => startRecording('audio') : undefined}>
+                    {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : (hasTextContent || selectedFile ? <Send className="h-5 w-5" /> : <Mic className="h-5 w-5" />)}
+                    <span className="sr-only">Send message</span>
+                </Button>
+            </>
+         )}
         </form>
       </footer>
     </div>

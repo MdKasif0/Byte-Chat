@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { collection, query, where, orderBy } from "firebase/firestore";
-import { Search, Pin, Check, Users, File, Video, Image as ImageIcon } from "lucide-react";
+import { Search, Pin, Check, Users, File, Video, Image as ImageIcon, Mic } from "lucide-react";
 import { format } from "date-fns";
 
 import { useAuth } from "@/context/AuthContext";
@@ -160,6 +160,8 @@ function LastMessagePreview({ lastMessage, currentUserId }: { lastMessage: Messa
             preview = <><ImageIcon className="h-4 w-4 mr-1" />Photo</>;
         } else if (lastMessage.fileType?.startsWith('video/')) {
             preview = <><Video className="h-4 w-4 mr-1" />Video</>;
+        } else if (lastMessage.fileType?.startsWith('audio/')) {
+            preview = <><Mic className="h-4 w-4 mr-1" />Voice message</>;
         } else {
             preview = <><File className="h-4 w-4 mr-1" />{lastMessage.fileName || 'File'}</>;
         }

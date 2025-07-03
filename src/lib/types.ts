@@ -48,4 +48,5 @@ export interface Message {
   fileURL?: string;
   fileName?: string;
   fileType?: string;
+  isClip?: boolean;
 }
