@@ -48,7 +48,7 @@ export default function SignupPage() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       await createUserWithEmailAndPassword(auth, values.email, values.password);
-      router.push("/chat");
+      router.push("/profile/setup");
     } catch (error: any) {
       toast({
         variant: "destructive",

@@ -1,6 +1,7 @@
 "use client";
 
 import { signOut } from "firebase/auth";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LogOut, User as UserIcon, Settings } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -43,7 +44,7 @@ export default function UserNav() {
           <Avatar className="h-9 w-9">
             <AvatarImage src={user?.photoURL || 'https://placehold.co/40x40.png'} alt="User avatar" data-ai-hint="person" />
             <AvatarFallback>
-              {user?.email?.[0].toUpperCase()}
+              {user?.displayName?.[0].toUpperCase() || user?.email?.[0].toUpperCase()}
             </AvatarFallback>
           </Avatar>
         </Button>
@@ -61,10 +62,14 @@ export default function UserNav() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem>
-            <UserIcon className="mr-2 h-4 w-4" />
-            <span>Profile</span>
-          </DropdownMenuItem>
+          <Link href="/profile" passHref>
+            <DropdownMenuItem asChild>
+                <span>
+                    <UserIcon className="mr-2 h-4 w-4" />
+                    Profile
+                </span>
+            </DropdownMenuItem>
+          </Link>
           <DropdownMenuItem>
             <Settings className="mr-2 h-4 w-4" />
             <span>Settings</span>

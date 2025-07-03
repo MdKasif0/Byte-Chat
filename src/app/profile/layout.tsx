@@ -3,10 +3,9 @@
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import ChatLayout from "@/components/chat/ChatLayout";
 import { Loader2 } from "lucide-react";
 
-export default function ChatAppLayout({
+export default function ProfileLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -15,16 +14,12 @@ export default function ChatAppLayout({
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        router.replace("/login");
-      } else if (!user.displayName) {
-        router.replace("/profile/setup");
-      }
+    if (!loading && !user) {
+      router.replace("/login");
     }
   }, [user, loading, router]);
 
-  if (loading || !user || !user.displayName) {
+  if (loading || !user) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -32,5 +27,5 @@ export default function ChatAppLayout({
     );
   }
 
-  return <ChatLayout>{children}</ChatLayout>;
+  return <main className="flex min-h-screen w-full items-center justify-center bg-background p-4">{children}</main>;
 }
