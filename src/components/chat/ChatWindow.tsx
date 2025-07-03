@@ -1,11 +1,12 @@
+
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, collection, query, orderBy, limit as firestoreLimit } from "firebase/firestore";
 import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2, Mic, Camera, StopCircle, Trash2, Bell, BellOff, Wallpaper, Search } from "lucide-react";
 import debounce from "lodash.debounce";
 
@@ -40,6 +41,8 @@ const messageSchema = z.object({
 
 type MessageFormData = z.infer<typeof messageSchema>;
 
+const MESSAGES_PER_PAGE = 25;
+
 export default function ChatWindow({ chatId }: ChatWindowProps) {
   const { user } = useAuth();
   const router = useRouter();
@@ -62,6 +65,9 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
 
   const [isWallpaperDialogOpen, setWallpaperDialogOpen] = useState(false);
 
+  const [msgLimit, setMsgLimit] = useState(MESSAGES_PER_PAGE);
+  const [hasMore, setHasMore] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -69,17 +75,35 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   const recordedChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { data: messages, loading: messagesLoading } = useCollection<Message>(
-    chatId ? `chats/${chatId}/messages` : null,
-    { orderBy: ["timestamp", "asc"] }
-  );
+  const messagesQuery = useMemo(() => (
+    chatId ? query(
+        collection(db, "chats", chatId, "messages"),
+        orderBy("timestamp", "desc"),
+        firestoreLimit(msgLimit)
+    ) : null
+  ), [chatId, msgLimit]);
 
-  const mediaMessages = messages?.filter(m => m.fileURL) || [];
+  const { data: messagesDesc, loading: messagesLoading } = useCollection<Message>(messagesQuery);
+  const messages = useMemo(() => messagesDesc?.slice().reverse() || [], [messagesDesc]);
+  const mediaMessages = useMemo(() => messages?.filter(m => m.fileURL) || [], [messages]);
 
   const form = useForm<MessageFormData>({
     resolver: zodResolver(messageSchema),
     defaultValues: { content: "" },
   });
+  
+  useEffect(() => {
+    // Reset state when chat changes
+    setIsInitialLoad(true);
+    setMsgLimit(MESSAGES_PER_PAGE);
+  }, [chatId]);
+
+  useEffect(() => {
+    // Check if there are more messages to load
+    if (messagesDesc) {
+        setHasMore(messagesDesc.length === msgLimit);
+    }
+  }, [messagesDesc, msgLimit]);
 
   useEffect(() => {
     if (!chatId || !user) return;
@@ -113,13 +137,12 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   }, [otherUser]);
 
   useEffect(() => {
-    if (scrollAreaRef.current) {
-        const viewport = scrollAreaRef.current.querySelector("div");
-        if(viewport) {
-            viewport.scrollTop = viewport.scrollHeight;
-        }
+    const viewport = scrollAreaRef.current?.querySelector("div");
+    if (viewport && isInitialLoad && messages && messages.length > 0 && !messagesLoading) {
+        viewport.scrollTop = viewport.scrollHeight;
+        setIsInitialLoad(false);
     }
-  }, [messages]);
+  }, [isInitialLoad, messages, messagesLoading]);
 
   const debouncedSetTypingStatus = useCallback(
     debounce((isTyping: boolean) => {
@@ -168,6 +191,12 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     
     debouncedSetTypingStatus(false);
     debouncedSetTypingStatus.cancel();
+    
+    const viewport = scrollAreaRef.current?.querySelector("div");
+    if (viewport) {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+    
     setIsUploading(false);
   };
   
@@ -176,6 +205,12 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
       setSelectedFile(e.target.files[0]);
     }
   }
+
+  const loadMoreMessages = () => {
+    if (!messagesLoading) {
+        setMsgLimit(prev => prev + MESSAGES_PER_PAGE);
+    }
+  };
 
   const startRecording = async (type: 'audio' | 'video') => {
     try {
@@ -385,23 +420,43 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
 
       <ScrollArea className="flex-1 bg-black/10" ref={scrollAreaRef}>
         <div className="p-4 space-y-2 h-full">
-            {messagesLoading ? (
+            {messagesLoading && messages?.length === 0 ? (
                 <div className="flex h-full items-center justify-center text-muted-foreground"><p>Loading messages...</p></div>
-            ) : messages && messages.length > 0 ? (
-                messages.map((message) => (
-                   <MessageBubble 
-                        key={message.id} 
-                        message={message}
-                        isGroupChat={chat.isGroup} 
-                        senderProfile={getSenderProfile(message.senderId)}
-                        onReply={setReplyTo}
-                        onMediaClick={openMedia}
-                    />
-                ))
             ) : (
-                <div className="flex h-full items-center justify-center">
-                    <p className="text-muted-foreground bg-background/50 backdrop-blur-sm p-2 rounded-lg">No messages yet. Start the conversation!</p>
-                </div>
+                <>
+                {hasMore && (
+                    <div className="text-center my-4">
+                        <Button
+                            variant="secondary"
+                            onClick={loadMoreMessages}
+                            disabled={messagesLoading}
+                        >
+                            {messagesLoading ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Loading...
+                                </>
+                            ) : "Load Older Messages"}
+                        </Button>
+                    </div>
+                )}
+                {messages && messages.length > 0 ? (
+                    messages.map((message) => (
+                    <MessageBubble 
+                            key={message.id} 
+                            message={message}
+                            isGroupChat={chat.isGroup} 
+                            senderProfile={getSenderProfile(message.senderId)}
+                            onReply={setReplyTo}
+                            onMediaClick={openMedia}
+                        />
+                    ))
+                ) : (
+                    <div className="flex h-full items-center justify-center">
+                        <p className="text-muted-foreground bg-background/50 backdrop-blur-sm p-2 rounded-lg">No messages yet. Start the conversation!</p>
+                    </div>
+                )}
+                </>
             )}
         </div>
       </ScrollArea>
