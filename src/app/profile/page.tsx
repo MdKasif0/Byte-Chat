@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { updateProfile } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, writeBatch } from "firebase/firestore";
 import { ArrowLeft, User, Info, Phone, Link2 as LinkIcon, Pencil, Camera } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
@@ -23,7 +23,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { UserProfile } from "@/lib/types";
 
 const nameSchema = z.object({
-  name: z.string().min(3, "Name must be at least 3 characters.").max(50, "Name cannot be longer than 50 characters."),
+  name: z.string().min(3, "Username must be at least 3 characters.").max(15, "Username must be no more than 15 characters.").regex(/^[a-zA-Z0-9_]+$/, {
+    message: "Username can only contain letters, numbers, and underscores.",
+  }),
 });
 const aboutSchema = z.object({
   about: z.string().max(150, "About cannot be longer than 150 characters."),
@@ -62,36 +64,72 @@ export default function ProfilePage() {
     }
   }, [user, router, nameForm, aboutForm]);
 
-  const handleFieldUpdate = async (field: keyof UserProfile, value: string) => {
+  const onNameSubmit = async (values: z.infer<typeof nameSchema>) => {
     if (!user || !profile) return;
-    try {
-      const userDocRef = doc(db, "users", user.uid);
-      await setDoc(userDocRef, { [field]: value }, { merge: true });
-      
-      const updatedProfile = { ...profile, [field]: value };
-      setProfile(updatedProfile);
 
-      if (field === 'displayName' && auth.currentUser) {
-        await updateProfile(auth.currentUser, { displayName: value });
+    const newUsername = values.name;
+    const newUsernameLower = newUsername.toLowerCase();
+    const oldUsernameLower = profile.displayName.toLowerCase();
+
+    if (newUsernameLower === oldUsernameLower) {
+      setNameDialogOpen(false);
+      return;
+    }
+
+    const newUsernameRef = doc(db, "usernames", newUsernameLower);
+    const newUsernameSnap = await getDoc(newUsernameRef);
+
+    if (newUsernameSnap.exists()) {
+      nameForm.setError("name", {
+        type: "manual",
+        message: "This username is already taken.",
+      });
+      return;
+    }
+
+    try {
+      const batch = writeBatch(db);
+
+      const oldUsernameRef = doc(db, "usernames", oldUsernameLower);
+      batch.delete(oldUsernameRef);
+
+      batch.set(newUsernameRef, { uid: user.uid });
+
+      const userDocRef = doc(db, "users", user.uid);
+      batch.update(userDocRef, { displayName: newUsername });
+
+      await batch.commit();
+
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, { displayName: newUsername });
       }
       
-      toast({ title: "Success", description: `${field.charAt(0).toUpperCase() + field.slice(1)} updated.` });
-      return true;
+      setProfile((p) => (p ? { ...p, displayName: newUsername } : null));
+      toast({ title: "Success", description: "Username updated." });
+      setNameDialogOpen(false);
     } catch (error) {
-      console.error("Error updating profile:", error);
-      toast({ variant: "destructive", title: "Error", description: `Could not update ${field}.` });
-      return false;
+      console.error("Error updating username:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Could not update your username.",
+      });
     }
-  };
-
-  const onNameSubmit = async (values: z.infer<typeof nameSchema>) => {
-    const success = await handleFieldUpdate('displayName', values.name);
-    if(success) setNameDialogOpen(false);
   };
   
   const onAboutSubmit = async (values: z.infer<typeof aboutSchema>) => {
-    const success = await handleFieldUpdate('about', values.about);
-    if(success) setAboutDialogOpen(false);
+    if (!user) return;
+    try {
+      const userDocRef = doc(db, "users", user.uid);
+      await setDoc(userDocRef, { about: values.about }, { merge: true });
+      
+      setProfile((p) => (p ? { ...p, about: values.about } : null));
+      toast({ title: "Success", description: `About section updated.` });
+      setAboutDialogOpen(false);
+    } catch (error) {
+      console.error("Error updating about:", error);
+      toast({ variant: "destructive", title: "Error", description: `Could not update about.` });
+    }
   };
 
   if (!profile) {
@@ -151,7 +189,7 @@ export default function ProfilePage() {
         <Separator />
 
         <section className="py-6 space-y-6">
-            <InfoRow icon={<User className="text-muted-foreground" />} label="Name">
+            <InfoRow icon={<User className="text-muted-foreground" />} label="Username">
                 <div className="flex items-center justify-between w-full">
                     <span>{profile.displayName}</span>
                     <Button variant="ghost" size="icon" onClick={() => setNameDialogOpen(true)}><Pencil className="h-4 w-4" /></Button>
@@ -179,10 +217,10 @@ export default function ProfilePage() {
         </section>
       </main>
 
-      {/* Edit Name Dialog */}
+      {/* Edit Username Dialog */}
       <Dialog open={isNameDialogOpen} onOpenChange={setNameDialogOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Edit Name</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Edit Username</DialogTitle></DialogHeader>
           <Form {...nameForm}>
             <form onSubmit={nameForm.handleSubmit(onNameSubmit)} className="space-y-4">
               <FormField
@@ -190,7 +228,7 @@ export default function ProfilePage() {
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Name</FormLabel>
+                    <FormLabel>Username</FormLabel>
                     <FormControl><Input {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
