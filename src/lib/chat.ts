@@ -260,3 +260,8 @@ export async function toggleMuteChat(chatId: string, userId: string, shouldMute:
         });
     }
 }
+
+export async function updateChatWallpaper(chatId: string, wallpaperURL: string) {
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, { wallpaperURL });
+}

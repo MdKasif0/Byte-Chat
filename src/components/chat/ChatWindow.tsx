@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { doc, onSnapshot } from "firebase/firestore";
-import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2, Mic, Camera, StopCircle, Trash2, Bell, BellOff } from "lucide-react";
+import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2, Mic, Camera, StopCircle, Trash2, Bell, BellOff, Wallpaper } from "lucide-react";
 import debounce from "lodash.debounce";
 
 import { useAuth } from "@/context/AuthContext";
@@ -27,6 +27,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import GroupInfoDialog from "./GroupInfoDialog";
 import MediaViewer from "./MediaViewer";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import WallpaperDialog from "./WallpaperDialog";
 
 type ChatWindowProps = {
   chatId: string;
@@ -57,6 +59,9 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   const [recordingType, setRecordingType] = useState<'audio' | 'video' | null>(null);
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+
+  const [isWallpaperDialogOpen, setWallpaperDialogOpen] = useState(false);
+
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -308,14 +313,23 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   return (
     <>
     {chat && <GroupInfoDialog isOpen={isGroupInfoOpen} setIsOpen={setGroupInfoOpen} chat={chat} />}
+    {chat && <WallpaperDialog isOpen={isWallpaperDialogOpen} onOpenChange={setWallpaperDialogOpen} chatId={chat.id} />}
     <MediaViewer
         isOpen={isMediaViewerOpen}
         setIsOpen={setMediaViewerOpen}
         mediaItems={mediaMessages}
         startIndex={mediaViewerStartIndex}
     />
-    <div className="flex h-full max-h-screen flex-col bg-card/50 md:rounded-xl overflow-hidden">
-      <header className="flex shrink-0 items-center justify-between border-b p-2 md:p-4 bg-card">
+    <div
+        className={cn(
+            "flex h-full max-h-screen flex-col md:rounded-xl overflow-hidden bg-center bg-cover transition-all",
+            !chat.wallpaperURL && "bg-background"
+        )}
+        style={{
+            backgroundImage: chat.wallpaperURL ? `url(${chat.wallpaperURL})` : undefined,
+        }}
+    >
+      <header className="flex shrink-0 items-center justify-between border-b p-2 md:p-4 bg-card/80 backdrop-blur-sm">
         <div className="flex items-center gap-2 md:gap-4">
           <Avatar>
             <AvatarImage src={headerDetails.avatarUrl} alt={headerDetails.name} data-ai-hint="person portrait" />
@@ -352,6 +366,9 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
                     <DropdownMenuItem>View Contact</DropdownMenuItem>
                 )}
                  <DropdownMenuItem>Search</DropdownMenuItem>
+                 <DropdownMenuItem onSelect={() => setWallpaperDialogOpen(true)}>
+                    <Wallpaper className="mr-2 h-4 w-4" /> Wallpaper
+                </DropdownMenuItem>
                  <DropdownMenuItem onSelect={handleToggleMute}>
                     {isMuted ? (
                         <><Bell className="mr-2 h-4 w-4" /> Unmute Notifications</>
@@ -364,7 +381,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
         </div>
       </header>
 
-      <ScrollArea className="flex-1" ref={scrollAreaRef}>
+      <ScrollArea className="flex-1 bg-black/10" ref={scrollAreaRef}>
         <div className="p-4 space-y-2 h-full">
             {messagesLoading ? (
                 <div className="flex h-full items-center justify-center text-muted-foreground"><p>Loading messages...</p></div>
@@ -380,12 +397,14 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
                     />
                 ))
             ) : (
-                <div className="flex h-full items-center justify-center text-muted-foreground"><p>No messages yet. Start the conversation!</p></div>
+                <div className="flex h-full items-center justify-center">
+                    <p className="text-muted-foreground bg-background/50 backdrop-blur-sm p-2 rounded-lg">No messages yet. Start the conversation!</p>
+                </div>
             )}
         </div>
       </ScrollArea>
 
-      <footer className="border-t p-2 md:p-4 bg-card space-y-2">
+      <footer className="border-t p-2 md:p-4 bg-card/80 backdrop-blur-sm space-y-2">
         <AnimatePresence>
         {selectedFile && recordingStatus === 'idle' && (
             <motion.div 

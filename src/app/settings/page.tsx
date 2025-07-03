@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import ChangePasswordDialog from "@/components/settings/ChangePasswordDialog";
 import DeleteAccountDialog from "@/components/settings/DeleteAccountDialog";
+import { useTheme } from "next-themes";
 
 function SettingsItem({ icon, title, description, onClick, control, isDestructive = false }: { icon: React.ReactNode, title: string, description: string, onClick?: () => void, control?: React.ReactNode, isDestructive?: boolean }) {
   const isClickable = !!onClick;
@@ -37,6 +38,8 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const [isChangePasswordOpen, setChangePasswordOpen] = useState(false);
   const [isDeleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const { theme, setTheme, resolvedTheme } = useTheme();
+
 
   const handleLogout = async () => {
     try {
@@ -50,14 +53,6 @@ export default function SettingsPage() {
       });
     }
   };
-
-  const handleThemeChange = (isDark: boolean) => {
-    if (isDark) {
-        document.documentElement.classList.add('dark');
-    } else {
-        document.documentElement.classList.remove('dark');
-    }
-  }
 
   return (
     <>
@@ -91,7 +86,11 @@ export default function SettingsPage() {
                         control={
                             <div className="flex items-center gap-2">
                                 <Sun className="h-5 w-5" />
-                                <Switch onCheckedChange={handleThemeChange} aria-label="Toggle theme" />
+                                <Switch
+                                    checked={resolvedTheme === 'dark'}
+                                    onCheckedChange={(isDark) => setTheme(isDark ? 'dark' : 'light')}
+                                    aria-label="Toggle theme"
+                                />
                                 <Moon className="h-5 w-5" />
                             </div>
                         }

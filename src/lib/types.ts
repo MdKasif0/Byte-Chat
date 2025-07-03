@@ -23,6 +23,7 @@ export interface Chat {
   lastMessage?: Message;
   createdAt: Timestamp;
   unreadCount?: number;
+  wallpaperURL?: string;
   
   // Group-specific fields
   isGroup?: boolean;
