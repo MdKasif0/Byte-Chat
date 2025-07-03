@@ -56,3 +56,27 @@ export interface Message {
   fileType?: string;
   isClip?: boolean;
 }
+
+export type CallType = 'video' | 'audio';
+
+export interface Call {
+  id: string;
+  chatId: string;
+  callerId: string;
+  callerName: string;
+  callerPhotoURL: string;
+  calleeId: string;
+  status: 'ringing' | 'connected' | 'rejected' | 'ended' | 'unanswered' | 'cancelled';
+  type: CallType;
+  offer?: { sdp: string; type: 'offer' };
+  answer?: { sdp: string; type: 'answer' };
+  createdAt: Timestamp;
+  connectedAt?: Timestamp;
+  endedAt?: Timestamp;
+}
+
+export interface IceCandidateData {
+    candidate: string;
+    sdpMid: string | null;
+    sdpMLineIndex: number | null;
+}

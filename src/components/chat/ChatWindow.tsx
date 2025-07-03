@@ -14,7 +14,7 @@ import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase/config";
 import { useCollection } from "@/hooks/use-collection";
 import { createMessage, setTypingStatus, markChatAsRead, toggleMuteChat } from "@/lib/chat";
-import type { Chat, Message, UserProfile, MemberProfile } from "@/lib/types";
+import type { Chat, Message, UserProfile, MemberProfile, CallType } from "@/lib/types";
 import { uploadFile } from "@/lib/storage";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -30,6 +30,7 @@ import MediaViewer from "./MediaViewer";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import WallpaperDialog from "./WallpaperDialog";
+import CallContainer from "./calls/CallContainer";
 
 type ChatWindowProps = {
   chatId: string;
@@ -40,6 +41,11 @@ const messageSchema = z.object({
 });
 
 type MessageFormData = z.infer<typeof messageSchema>;
+
+type CallRequest = {
+    type: CallType,
+    calleeId: string,
+}
 
 const MESSAGES_PER_PAGE = 25;
 
@@ -68,6 +74,9 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   const [msgLimit, setMsgLimit] = useState(MESSAGES_PER_PAGE);
   const [hasMore, setHasMore] = useState(true);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  
+  const [callRequest, setCallRequest] = useState<CallRequest | null>(null);
+
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -312,6 +321,16 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
       }
   }
 
+  const handleStartCall = (type: CallType) => {
+      if (chat?.isGroup) {
+          toast({ title: "Group calls are not supported yet." });
+          return;
+      }
+      if (otherUser) {
+          setCallRequest({ type, calleeId: otherUser.uid });
+      }
+  }
+
   if (!chat || (!otherUser && !chat.isGroup)) {
     return (
       <div className="flex h-full flex-col bg-card/50 md:rounded-xl">
@@ -386,8 +405,8 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
         <div className="flex items-center gap-1 md:gap-2">
           {!chat.isGroup && (
             <>
-                <Button variant="ghost" size="icon"><Video className="h-5 w-5" /></Button>
-                <Button variant="ghost" size="icon"><Phone className="h-5 w-5" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => handleStartCall('video')}><Video className="h-5 w-5" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => handleStartCall('audio')}><Phone className="h-5 w-5" /></Button>
             </>
           )}
           <DropdownMenu>
@@ -531,6 +550,14 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
          )}
         </form>
       </footer>
+       {user && chat && (
+          <CallContainer
+            user={user as UserProfile}
+            chat={chat}
+            callRequest={callRequest}
+            onCallEnded={() => setCallRequest(null)}
+          />
+       )}
     </div>
     </>
   );

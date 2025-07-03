@@ -15,9 +15,10 @@ import {
   writeBatch,
   where,
   deleteDoc,
+  Timestamp,
 } from "firebase/firestore";
 import { db } from "./firebase/config";
-import type { Message, UserProfile } from "./types";
+import type { Message, UserProfile, Call, CallType, IceCandidateData } from "./types";
 
 export async function createChat(
   currentUserId: string,
@@ -284,4 +285,58 @@ export async function toggleStarMessage(chatId: string, messageId: string, userI
             });
         }
     }
+}
+
+// Call Signaling Functions
+
+export async function createCall(
+    chatId: string,
+    caller: UserProfile,
+    calleeId: string,
+    type: CallType,
+    offer: RTCSessionDescriptionInit
+): Promise<string> {
+    const callData: Omit<Call, 'id'> = {
+        chatId,
+        callerId: caller.uid,
+        callerName: caller.displayName,
+        callerPhotoURL: caller.photoURL,
+        calleeId,
+        status: 'ringing',
+        type,
+        offer: {
+            sdp: offer.sdp!,
+            type: offer.type!,
+        },
+        createdAt: serverTimestamp() as Timestamp,
+    };
+    const callDocRef = await addDoc(collection(db, 'calls'), callData);
+    return callDocRef.id;
+}
+
+
+export async function updateCallWithAnswer(callId: string, answer: RTCSessionDescriptionInit) {
+    const callRef = doc(db, 'calls', callId);
+    await updateDoc(callRef, {
+        status: 'connected',
+        connectedAt: serverTimestamp(),
+        answer: {
+            sdp: answer.sdp!,
+            type: answer.type!,
+        }
+    });
+}
+
+export async function updateCallStatus(callId: string, status: Call['status']) {
+    const callRef = doc(db, 'calls', callId);
+    const payload: { status: Call['status'], endedAt?: any } = { status };
+    if (status === 'ended' || status === 'rejected' || status === 'unanswered' || status === 'cancelled') {
+        payload.endedAt = serverTimestamp();
+    }
+    await updateDoc(callRef, payload);
+}
+
+export async function addIceCandidate(callId: string, collectionName: 'callerCandidates' | 'calleeCandidates', candidate: RTCIceCandidate) {
+    const candidatesRef = collection(db, 'calls', callId, collectionName);
+    await addDoc(candidatesRef, candidate.toJSON());
 }
