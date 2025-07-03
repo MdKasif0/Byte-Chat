@@ -12,14 +12,23 @@ export interface UserProfile {
   isOnline: boolean;
 }
 
+export type MemberProfile = Pick<UserProfile, 'uid' | 'displayName' | 'photoURL' | 'isOnline'>;
+
 export interface Chat {
   id: string;
   members: string[];
-  memberProfiles: Pick<UserProfile, 'uid' | 'displayName' | 'photoURL' | 'isOnline'>[];
+  memberProfiles: MemberProfile[];
   typing: string[];
   lastMessage?: Message;
   createdAt: Timestamp;
   unreadCount?: number;
+  
+  // Group-specific fields
+  isGroup?: boolean;
+  groupName?: string;
+  groupAvatarURL?: string;
+  admins?: string[];
+  createdBy?: string;
 }
 
 export interface Message {

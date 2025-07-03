@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { collection, query, where, orderBy } from "firebase/firestore";
-import { Search, Pin, Check } from "lucide-react";
+import { Search, Pin, Check, Users } from "lucide-react";
 import { format } from "date-fns";
 
 import { useAuth } from "@/context/AuthContext";
@@ -150,26 +150,33 @@ function ChatSkeleton() {
 }
 
 function ChatItem({ chat, currentUserId }: { chat: Chat, currentUserId: string }) {
-    const otherMember = chat.memberProfiles.find(member => member.uid !== currentUserId);
+    const isGroup = chat.isGroup;
+    const otherMember = !isGroup ? chat.memberProfiles.find(member => member.uid !== currentUserId) : null;
 
-    if (!otherMember) return null;
+    if (!isGroup && !otherMember) return null;
     
     // For design purposes, mock unread count for one user
-    const unreadCount = otherMember.displayName === "Matthew Lucas" ? 3 : 0;
+    const unreadCount = otherMember?.displayName === "Matthew Lucas" ? 3 : 0;
+
+    const displayName = isGroup ? chat.groupName : otherMember?.displayName;
+    const photoURL = isGroup ? chat.groupAvatarURL : otherMember?.photoURL;
+    const isOnline = !isGroup && otherMember?.isOnline;
 
     return (
         <Link href={`/chat/${chat.id}`} className="block">
             <div className="flex items-center gap-4 p-3 rounded-2xl hover:bg-muted transition-colors">
                 <div className="relative shrink-0">
                     <Avatar className="h-14 w-14">
-                        <AvatarImage src={otherMember.photoURL} alt={otherMember.displayName} />
-                        <AvatarFallback>{otherMember.displayName.charAt(0)}</AvatarFallback>
+                        <AvatarImage src={photoURL} alt={displayName} />
+                        <AvatarFallback>
+                            {isGroup ? <Users className="h-6 w-6"/> : displayName?.charAt(0)}
+                        </AvatarFallback>
                     </Avatar>
-                     {otherMember.isOnline && <span className="absolute bottom-0.5 right-0.5 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-background" />}
+                     {isOnline && <span className="absolute bottom-0.5 right-0.5 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-background" />}
                 </div>
                 <div className="flex-grow overflow-hidden">
                     <div className="flex justify-between items-start">
-                        <h4 className="font-semibold truncate">{otherMember.displayName}</h4>
+                        <h4 className="font-semibold truncate">{displayName}</h4>
                         {chat.lastMessage?.timestamp && (
                              <p className="text-xs text-muted-foreground shrink-0">
                                 {format(chat.lastMessage.timestamp.toDate(), 'p')}

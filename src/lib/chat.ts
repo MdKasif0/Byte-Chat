@@ -14,6 +14,7 @@ import {
   updateDoc,
   writeBatch,
   where,
+  deleteDoc,
 } from "firebase/firestore";
 import { db } from "./firebase/config";
 import type { Message, UserProfile } from "./types";
@@ -26,6 +27,7 @@ export async function createChat(
   const chatsRef = collection(db, "chats");
   const q = query(
     chatsRef,
+    where("isGroup", "==", false),
     where("members", "==", [currentUserId, otherUserId].sort())
   );
 
@@ -35,8 +37,7 @@ export async function createChat(
     // Chat already exists
     return querySnapshot.docs[0].id;
   }
-
-  // Fetch member profiles
+  
   const userDocs = await getDocs(query(collection(db, 'users'), where(documentId(), 'in', [currentUserId, otherUserId])));
   const memberProfiles = userDocs.docs.map(d => {
       const user = d.data() as UserProfile;
@@ -48,17 +49,47 @@ export async function createChat(
       }
   });
 
-
   // Create a new chat
   const newChatRef = await addDoc(collection(db, "chats"), {
     members: [currentUserId, otherUserId].sort(),
     memberProfiles,
     typing: [],
     createdAt: serverTimestamp(),
+    isGroup: false,
   });
 
   return newChatRef.id;
 }
+
+export async function createGroupChat(creatorId: string, memberIds: string[], groupName: string) {
+    const allMemberIds = Array.from(new Set([creatorId, ...memberIds]));
+    
+    const userDocs = await getDocs(query(collection(db, 'users'), where(documentId(), 'in', allMemberIds)));
+    const memberProfiles = userDocs.docs.map(d => {
+        const user = d.data() as UserProfile;
+        return {
+            uid: user.uid,
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+            isOnline: user.isOnline,
+        }
+    });
+
+    const newChatRef = await addDoc(collection(db, "chats"), {
+        groupName,
+        groupAvatarURL: `https://placehold.co/200x200.png?text=${groupName.charAt(0).toUpperCase()}`,
+        isGroup: true,
+        createdBy: creatorId,
+        admins: [creatorId],
+        members: allMemberIds,
+        memberProfiles,
+        typing: [],
+        createdAt: serverTimestamp(),
+    });
+
+    return newChatRef.id;
+}
+
 
 export async function createMessage(
   chatId: string,
@@ -153,10 +184,9 @@ export async function updateMessage(chatId: string, messageId: string, newConten
 
 export async function deleteMessage(chatId: string, messageId: string) {
     const messageRef = doc(db, `chats/${chatId}/messages`, messageId);
-    await updateDoc(messageRef, {
-        content: 'This message was deleted.',
-        isEdited: false, // Or a new field `isDeleted: true`
-    });
+    // Instead of updating, we'll make this a hard delete for simplicity,
+    // though a soft delete (updating content) is also a valid strategy.
+    await deleteDoc(messageRef);
 }
 
 export async function toggleReaction(chatId: string, messageId: string, emoji: string, userId: string) {
@@ -180,4 +210,33 @@ export async function toggleReaction(chatId: string, messageId: string, emoji: s
             });
         }
     }
+}
+
+
+export async function removeMemberFromGroup(chatId: string, memberId: string) {
+    const chatRef = doc(db, "chats", chatId);
+    const chatSnap = await getDoc(chatRef);
+    if (!chatSnap.exists() || !chatSnap.data().isGroup) return;
+
+    const memberProfileToRemove = chatSnap.data().memberProfiles.find((p: UserProfile) => p.uid === memberId);
+
+    await updateDoc(chatRef, {
+        members: arrayRemove(memberId),
+        admins: arrayRemove(memberId),
+        memberProfiles: arrayRemove(memberProfileToRemove),
+    });
+}
+
+export async function promoteToAdmin(chatId: string, memberId: string) {
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, {
+        admins: arrayUnion(memberId)
+    });
+}
+
+export async function demoteToAdmin(chatId: string, memberId: string) {
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, {
+        admins: arrayRemove(memberId)
+    });
 }

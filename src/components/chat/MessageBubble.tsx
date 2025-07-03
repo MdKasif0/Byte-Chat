@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import { format } from "date-fns";
 import { Check, CheckCheck, CornerUpLeft, Edit, SmilePlus, Trash2, MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
-import type { Message } from "@/lib/types";
+import type { Message, MemberProfile } from "@/lib/types";
 import { deleteMessage, toggleReaction, updateMessage } from "@/lib/chat";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -23,9 +23,11 @@ const EMOJI_REACTIONS = ["👍", "❤️", "😂", "😯", "😢", "🙏"];
 type MessageBubbleProps = {
   message: Message;
   onReply: (message: Message) => void;
+  isGroupChat?: boolean;
+  senderProfile?: MemberProfile;
 };
 
-export default function MessageBubble({ message, onReply }: MessageBubbleProps) {
+export default function MessageBubble({ message, onReply, isGroupChat, senderProfile }: MessageBubbleProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
@@ -54,7 +56,7 @@ export default function MessageBubble({ message, onReply }: MessageBubbleProps) 
   }
   
   const handleDelete = async () => {
-      if (window.confirm("Are you sure you want to delete this message?")) {
+      if (window.confirm("Are you sure you want to delete this message? This action cannot be undone.")) {
         try {
             await deleteMessage(message.chatId, message.id);
             toast({ title: "Message deleted" });
@@ -73,6 +75,11 @@ export default function MessageBubble({ message, onReply }: MessageBubbleProps) 
             isSender ? "rounded-br-none bg-primary text-primary-foreground" : "rounded-bl-none bg-card border"
             )}
         >
+             {/* Sender Name for Group Chats */}
+            {isGroupChat && !isSender && (
+                <p className="text-xs font-bold text-primary">{senderProfile?.displayName || "User"}</p>
+            )}
+
              {/* Reply block */}
             {message.replyTo && (
                 <div className="mb-1 rounded-md bg-black/20 p-2 text-xs">
