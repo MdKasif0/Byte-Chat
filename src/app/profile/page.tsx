@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { updateProfile } from "firebase/auth";
-import { doc, getDoc, setDoc, writeBatch } from "firebase/firestore";
+import { doc, getDoc, setDoc, writeBatch, Timestamp } from "firebase/firestore";
 import { ArrowLeft, User, Info, Phone, Link2 as LinkIcon, Pencil, Camera } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
@@ -51,18 +51,31 @@ export default function ProfilePage() {
       const fetchProfile = async () => {
         const userDocRef = doc(db, "users", user.uid);
         const userDocSnap = await getDoc(userDocRef);
+        let profileData: UserProfile;
+
         if (userDocSnap.exists()) {
-          const data = userDocSnap.data() as UserProfile;
-          setProfile(data);
-          nameForm.reset({ name: data.displayName });
-          aboutForm.reset({ about: data.about });
+          profileData = userDocSnap.data() as UserProfile;
         } else {
-           router.push('/chat');
+          // Fallback if the user document doesn't exist for some reason.
+          // This prevents being redirected and makes the page accessible.
+          profileData = {
+            uid: user.uid,
+            displayName: user.displayName || 'Anonymous',
+            email: user.email || '',
+            photoURL: user.photoURL || `https://placehold.co/200x200.png`,
+            about: 'Hey there! I am using ByteChat.',
+            isOnline: true,
+            lastSeen: new Timestamp(0, 0), // Placeholder
+          };
         }
+        
+        setProfile(profileData);
+        nameForm.reset({ name: profileData.displayName });
+        aboutForm.reset({ about: profileData.about });
       };
       fetchProfile();
     }
-  }, [user, router, nameForm, aboutForm]);
+  }, [user, nameForm, aboutForm]);
 
   const onNameSubmit = async (values: z.infer<typeof nameSchema>) => {
     if (!user || !profile) return;
