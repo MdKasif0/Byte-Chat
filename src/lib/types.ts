@@ -10,6 +10,7 @@ export interface UserProfile {
   links?: string[];
   lastSeen: Timestamp;
   isOnline: boolean;
+  fcmTokens?: string[];
 }
 
 export type MemberProfile = Pick<UserProfile, 'uid' | 'displayName' | 'photoURL' | 'isOnline'>;
@@ -29,6 +30,9 @@ export interface Chat {
   groupAvatarURL?: string;
   admins?: string[];
   createdBy?: string;
+
+  // Notification settings
+  mutedBy?: string[];
 }
 
 export interface Message {

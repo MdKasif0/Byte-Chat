@@ -247,3 +247,16 @@ export async function demoteToAdmin(chatId: string, memberId: string) {
         admins: arrayRemove(memberId)
     });
 }
+
+export async function toggleMuteChat(chatId: string, userId: string, shouldMute: boolean) {
+    const chatRef = doc(db, "chats", chatId);
+    if (shouldMute) {
+        await updateDoc(chatRef, {
+            mutedBy: arrayUnion(userId)
+        });
+    } else {
+        await updateDoc(chatRef, {
+            mutedBy: arrayRemove(userId)
+        });
+    }
+}

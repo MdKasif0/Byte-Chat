@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import ProfileSetupDialog from "@/components/profile/ProfileSetupDialog";
 import { Loader2 } from "lucide-react";
 import BottomNavBar from "@/components/BottomNavBar";
+import { requestPermissionAndToken } from "@/lib/firebase/messaging";
 
 export default function ChatAppLayout({
   children,
@@ -26,6 +27,9 @@ export default function ChatAppLayout({
         router.replace("/login");
       } else if (!user.displayName) {
         setSetupDialogOpen(true);
+      } else {
+        // Once user is logged in and profile is set up, request notification permissions
+        requestPermissionAndToken(user.uid);
       }
     }
   }, [user, loading, router]);

@@ -6,13 +6,13 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { doc, onSnapshot } from "firebase/firestore";
-import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2, Mic, Camera, StopCircle, Trash2 } from "lucide-react";
+import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2, Mic, Camera, StopCircle, Trash2, Bell, BellOff } from "lucide-react";
 import debounce from "lodash.debounce";
 
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase/config";
 import { useCollection } from "@/hooks/use-collection";
-import { createMessage, setTypingStatus, markChatAsRead } from "@/lib/chat";
+import { createMessage, setTypingStatus, markChatAsRead, toggleMuteChat } from "@/lib/chat";
 import type { Chat, Message, UserProfile, MemberProfile } from "@/lib/types";
 import { uploadFile } from "@/lib/storage";
 
@@ -253,6 +253,25 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     .map(uid => chat.memberProfiles.find(p => p.uid === uid)?.displayName)
     .filter(Boolean) || [];
 
+  const isMuted = chat?.mutedBy?.includes(user!.uid);
+
+  const handleToggleMute = async () => {
+      if (!user || !chat) return;
+      try {
+          await toggleMuteChat(chat.id, user.uid, !isMuted);
+          toast({
+              title: isMuted ? "Notifications Unmuted" : "Notifications Muted",
+              description: `You will ${isMuted ? 'now' : 'no longer'} receive notifications for this chat.`,
+          });
+      } catch (error) {
+          toast({
+              variant: "destructive",
+              title: "Error",
+              description: "Could not update notification settings."
+          })
+      }
+  }
+
   if (!chat || (!otherUser && !chat.isGroup)) {
     return (
       <div className="flex h-full flex-col bg-card/50 md:rounded-xl">
@@ -333,7 +352,13 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
                     <DropdownMenuItem>View Contact</DropdownMenuItem>
                 )}
                  <DropdownMenuItem>Search</DropdownMenuItem>
-                 <DropdownMenuItem>Mute Notifications</DropdownMenuItem>
+                 <DropdownMenuItem onSelect={handleToggleMute}>
+                    {isMuted ? (
+                        <><Bell className="mr-2 h-4 w-4" /> Unmute Notifications</>
+                    ) : (
+                        <><BellOff className="mr-2 h-4 w-4" /> Mute Notifications</>
+                    )}
+                </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
