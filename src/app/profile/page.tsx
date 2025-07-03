@@ -22,9 +22,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Skeleton } from "@/components/ui/skeleton";
 import type { UserProfile } from "@/lib/types";
 
-const nameSchema = z.object({
-  name: z.string().min(3, "Username must be at least 3 characters.").max(15, "Username must be no more than 15 characters.").regex(/^[a-zA-Z0-9_]+$/, {
-    message: "Username can only contain letters, numbers, and underscores.",
+const phoneSchema = z.object({
+  phone: z.string().min(10, {
+    message: "Please enter a valid phone number.",
+  }).max(20, {
+    message: "This phone number is too long.",
   }),
 });
 const aboutSchema = z.object({
@@ -36,11 +38,11 @@ export default function ProfilePage() {
   const router = useRouter();
   const { toast } = useToast();
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [isNameDialogOpen, setNameDialogOpen] = useState(false);
+  const [isPhoneDialogOpen, setPhoneDialogOpen] = useState(false);
   const [isAboutDialogOpen, setAboutDialogOpen] = useState(false);
 
-  const nameForm = useForm<z.infer<typeof nameSchema>>({
-    resolver: zodResolver(nameSchema),
+  const phoneForm = useForm<z.infer<typeof phoneSchema>>({
+    resolver: zodResolver(phoneSchema),
   });
   const aboutForm = useForm<z.infer<typeof aboutSchema>>({
     resolver: zodResolver(aboutSchema),
@@ -57,10 +59,9 @@ export default function ProfilePage() {
           profileData = userDocSnap.data() as UserProfile;
         } else {
           // Fallback if the user document doesn't exist for some reason.
-          // This prevents being redirected and makes the page accessible.
           profileData = {
             uid: user.uid,
-            displayName: user.displayName || 'Anonymous',
+            displayName: user.displayName || 'No number',
             email: user.email || '',
             photoURL: user.photoURL || `https://placehold.co/200x200.png`,
             about: 'Hey there! I am using ByteChat.',
@@ -70,32 +71,31 @@ export default function ProfilePage() {
         }
         
         setProfile(profileData);
-        nameForm.reset({ name: profileData.displayName });
+        phoneForm.reset({ phone: profileData.displayName });
         aboutForm.reset({ about: profileData.about });
       };
       fetchProfile();
     }
-  }, [user, nameForm, aboutForm]);
+  }, [user, phoneForm, aboutForm]);
 
-  const onNameSubmit = async (values: z.infer<typeof nameSchema>) => {
+  const onPhoneSubmit = async (values: z.infer<typeof phoneSchema>) => {
     if (!user || !profile) return;
 
-    const newUsername = values.name;
-    const newUsernameLower = newUsername.toLowerCase();
-    const oldUsernameLower = profile.displayName.toLowerCase();
+    const newPhoneNumber = values.phone;
+    const oldPhoneNumber = profile.displayName;
 
-    if (newUsernameLower === oldUsernameLower) {
-      setNameDialogOpen(false);
+    if (newPhoneNumber === oldPhoneNumber) {
+      setPhoneDialogOpen(false);
       return;
     }
 
-    const newUsernameRef = doc(db, "usernames", newUsernameLower);
-    const newUsernameSnap = await getDoc(newUsernameRef);
+    const newPhoneNumberRef = doc(db, "phonenumbers", newPhoneNumber);
+    const newPhoneNumberSnap = await getDoc(newPhoneNumberRef);
 
-    if (newUsernameSnap.exists()) {
-      nameForm.setError("name", {
+    if (newPhoneNumberSnap.exists()) {
+      phoneForm.setError("phone", {
         type: "manual",
-        message: "This username is already taken.",
+        message: "This phone number is already taken.",
       });
       return;
     }
@@ -103,29 +103,29 @@ export default function ProfilePage() {
     try {
       const batch = writeBatch(db);
 
-      const oldUsernameRef = doc(db, "usernames", oldUsernameLower);
-      batch.delete(oldUsernameRef);
+      const oldPhoneNumberRef = doc(db, "phonenumbers", oldPhoneNumber);
+      batch.delete(oldPhoneNumberRef);
 
-      batch.set(newUsernameRef, { uid: user.uid });
+      batch.set(newPhoneNumberRef, { uid: user.uid });
 
       const userDocRef = doc(db, "users", user.uid);
-      batch.update(userDocRef, { displayName: newUsername });
+      batch.update(userDocRef, { displayName: newPhoneNumber, phone: newPhoneNumber });
 
       await batch.commit();
 
       if (auth.currentUser) {
-        await updateProfile(auth.currentUser, { displayName: newUsername });
+        await updateProfile(auth.currentUser, { displayName: newPhoneNumber });
       }
       
-      setProfile((p) => (p ? { ...p, displayName: newUsername } : null));
-      toast({ title: "Success", description: "Username updated." });
-      setNameDialogOpen(false);
+      setProfile((p) => (p ? { ...p, displayName: newPhoneNumber, phone: newPhoneNumber } : null));
+      toast({ title: "Success", description: "Phone number updated." });
+      setPhoneDialogOpen(false);
     } catch (error) {
-      console.error("Error updating username:", error);
+      console.error("Error updating phone number:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Could not update your username.",
+        description: "Could not update your phone number.",
       });
     }
   };
@@ -202,10 +202,10 @@ export default function ProfilePage() {
         <Separator />
 
         <section className="py-6 space-y-6">
-            <InfoRow icon={<User className="text-muted-foreground" />} label="Username">
+            <InfoRow icon={<Phone className="text-muted-foreground" />} label="Phone Number">
                 <div className="flex items-center justify-between w-full">
                     <span>{profile.displayName}</span>
-                    <Button variant="ghost" size="icon" onClick={() => setNameDialogOpen(true)}><Pencil className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => setPhoneDialogOpen(true)}><Pencil className="h-4 w-4" /></Button>
                 </div>
             </InfoRow>
 
@@ -218,9 +218,9 @@ export default function ProfilePage() {
 
             <Separator />
             
-            <InfoRow icon={<Phone className="text-muted-foreground" />} label="Phone">
+            <InfoRow icon={<User className="text-muted-foreground" />} label="Email">
                 <p className="text-sm text-foreground/80">
-                    {profile.phone || "Not provided"}
+                    {profile.email || "Not provided"}
                 </p>
             </InfoRow>
             
@@ -230,18 +230,18 @@ export default function ProfilePage() {
         </section>
       </main>
 
-      {/* Edit Username Dialog */}
-      <Dialog open={isNameDialogOpen} onOpenChange={setNameDialogOpen}>
+      {/* Edit Phone Number Dialog */}
+      <Dialog open={isPhoneDialogOpen} onOpenChange={setPhoneDialogOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Edit Username</DialogTitle></DialogHeader>
-          <Form {...nameForm}>
-            <form onSubmit={nameForm.handleSubmit(onNameSubmit)} className="space-y-4">
+          <DialogHeader><DialogTitle>Edit Phone Number</DialogTitle></DialogHeader>
+          <Form {...phoneForm}>
+            <form onSubmit={phoneForm.handleSubmit(onPhoneSubmit)} className="space-y-4">
               <FormField
-                control={nameForm.control}
-                name="name"
+                control={phoneForm.control}
+                name="phone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Username</FormLabel>
+                    <FormLabel>Phone Number</FormLabel>
                     <FormControl><Input {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
@@ -249,7 +249,7 @@ export default function ProfilePage() {
               />
               <DialogFooter>
                 <DialogClose asChild><Button type="button" variant="ghost">Cancel</Button></DialogClose>
-                <Button type="submit" disabled={nameForm.formState.isSubmitting}>Save</Button>
+                <Button type="submit" disabled={phoneForm.formState.isSubmitting}>Save</Button>
               </DialogFooter>
             </form>
           </Form>

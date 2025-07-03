@@ -31,12 +31,10 @@ import { auth, db } from "@/lib/firebase/config";
 import { useAuth } from "@/context/AuthContext";
 
 const formSchema = z.object({
-  username: z.string().min(3, {
-    message: "Username must be at least 3 characters.",
-  }).max(15, {
-    message: "Username must be no more than 15 characters.",
-  }).regex(/^[a-zA-Z0-9_]+$/, {
-    message: "Username can only contain letters, numbers, and underscores.",
+  phone: z.string().min(10, {
+    message: "Please enter a valid phone number.",
+  }).max(20, {
+    message: "This phone number is too long.",
   }),
 });
 
@@ -52,7 +50,7 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      username: "",
+      phone: "",
     },
   });
 
@@ -62,14 +60,14 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
       return;
     }
 
-    const username = values.username.toLowerCase();
+    const phoneNumber = values.phone;
     const userRef = doc(db, "users", user.uid);
-    const usernameRef = doc(db, "usernames", username);
+    const phoneNumberRef = doc(db, "phonenumbers", phoneNumber);
 
     try {
-      const usernameDoc = await getDoc(usernameRef);
-      if (usernameDoc.exists()) {
-        form.setError("username", { type: "manual", message: "This username is already taken." });
+      const phoneNumberDoc = await getDoc(phoneNumberRef);
+      if (phoneNumberDoc.exists()) {
+        form.setError("phone", { type: "manual", message: "This phone number is already in use." });
         return;
       }
 
@@ -77,22 +75,22 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
       
       batch.set(userRef, { 
         uid: user.uid,
-        displayName: username, 
+        displayName: phoneNumber, 
         email: user.email,
         about: "Hey there! I am using ByteChat.",
-        phone: "",
+        phone: phoneNumber,
         links: [],
-        photoURL: user.photoURL || `https://placehold.co/200x200.png?text=${username.charAt(0).toUpperCase()}`,
+        photoURL: user.photoURL || `https://placehold.co/200x200.png?text=${phoneNumber.charAt(0).toUpperCase()}`,
         isOnline: true,
         lastSeen: serverTimestamp(),
       });
-      batch.set(usernameRef, { uid: user.uid });
+      batch.set(phoneNumberRef, { uid: user.uid });
       
       await batch.commit();
 
       await updateProfile(user, { 
-        displayName: username,
-        photoURL: user.photoURL || `https://placehold.co/200x200.png?text=${username.charAt(0).toUpperCase()}`
+        displayName: phoneNumber,
+        photoURL: user.photoURL || `https://placehold.co/200x200.png?text=${phoneNumber.charAt(0).toUpperCase()}`
       });
 
       toast({
@@ -123,19 +121,19 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
             </div>
             <DialogTitle className="text-2xl font-headline">Welcome to ByteChat</DialogTitle>
             <DialogDescription>
-            Let's set up your profile. Choose a unique username.
+            Let's set up your profile. Please enter your phone number.
             </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 px-4">
             <FormField
               control={form.control}
-              name="username"
+              name="phone"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Username</FormLabel>
+                  <FormLabel>Phone Number</FormLabel>
                   <FormControl>
-                    <Input placeholder="your_username" {...field} />
+                    <Input placeholder="+1 234 567 8900" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

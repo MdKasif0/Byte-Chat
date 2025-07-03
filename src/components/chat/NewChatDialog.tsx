@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/context/AuthContext";
-import { findUserByUsername, createChat } from "@/lib/chat";
+import { findUserByPhoneNumber, createChat } from "@/lib/chat";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -30,7 +30,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 
 const formSchema = z.object({
-  username: z.string().min(1, "Username cannot be empty."),
+  phone: z.string().min(1, "Phone number cannot be empty."),
 });
 
 type NewChatDialogProps = {
@@ -45,7 +45,7 @@ export default function NewChatDialog({ open, onOpenChange }: NewChatDialogProps
   
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: { username: "" },
+    defaultValues: { phone: "" },
   });
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
@@ -53,15 +53,15 @@ export default function NewChatDialog({ open, onOpenChange }: NewChatDialogProps
       toast({ variant: "destructive", title: "You must be logged in." });
       return;
     }
-    if (values.username.toLowerCase() === currentUser.displayName?.toLowerCase()) {
-        form.setError("username", { message: "You can't start a chat with yourself." });
+    if (values.phone === currentUser.displayName) {
+        form.setError("phone", { message: "You can't start a chat with yourself." });
         return;
     }
 
     try {
-      const targetUser = await findUserByUsername(values.username);
+      const targetUser = await findUserByPhoneNumber(values.phone);
       if (!targetUser) {
-        form.setError("username", { message: "User not found." });
+        form.setError("phone", { message: "User not found." });
         return;
       }
 
@@ -83,19 +83,19 @@ export default function NewChatDialog({ open, onOpenChange }: NewChatDialogProps
         <DialogHeader>
           <DialogTitle>New Chat</DialogTitle>
           <DialogDescription>
-            Enter the username of the person you want to chat with.
+            Enter the phone number of the person you want to chat with.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
-              name="username"
+              name="phone"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Username</FormLabel>
+                  <FormLabel>Phone Number</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. john_doe" {...field} />
+                    <Input placeholder="+1 234 567 8900" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

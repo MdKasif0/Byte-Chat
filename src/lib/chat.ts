@@ -68,19 +68,24 @@ export async function createMessage(
 ) {
   const chatRef = doc(db, "chats", chatId);
   const messagesRef = collection(chatRef, "messages");
+  
+  let replyToData;
+  if (replyTo) {
+    const senderDoc = await getDoc(doc(db, "users", replyTo.senderId));
+    const senderName = senderDoc.exists() ? senderDoc.data().displayName : "User";
+    replyToData = {
+        messageId: replyTo.id,
+        senderName: senderName,
+        content: replyTo.content,
+    }
+  }
 
   const newMessage: Omit<Message, 'id'> = {
     senderId,
     content,
     timestamp: serverTimestamp() as any, // Cast because serverTimestamp is a sentinel value
     readBy: [senderId],
-    ...(replyTo && {
-      replyTo: {
-        messageId: replyTo.id,
-        senderName: replyTo.senderId, // We'll resolve to name on client
-        content: replyTo.content,
-      },
-    }),
+    ...(replyTo && { replyTo: replyToData }),
   };
 
   const messageRef = await addDoc(messagesRef, newMessage);
@@ -123,12 +128,12 @@ export async function markChatAsRead(chatId: string, userId: string) {
     await batch.commit();
 }
 
-export async function findUserByUsername(username: string) {
-    const usernameRef = doc(db, 'usernames', username.toLowerCase());
-    const usernameSnap = await getDoc(usernameRef);
+export async function findUserByPhoneNumber(phoneNumber: string) {
+    const phoneNumberRef = doc(db, 'phonenumbers', phoneNumber);
+    const phoneNumberSnap = await getDoc(phoneNumberRef);
 
-    if (usernameSnap.exists()) {
-        const { uid } = usernameSnap.data();
+    if (phoneNumberSnap.exists()) {
+        const { uid } = phoneNumberSnap.data();
         const userRef = doc(db, 'users', uid);
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) {
