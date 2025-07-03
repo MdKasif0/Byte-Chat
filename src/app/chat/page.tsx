@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { collection, query, where, orderBy } from "firebase/firestore";
-import { Search, Pin, Check, Users, File, Video, Image as ImageIcon, Mic } from "lucide-react";
+import { Search, Check, Users, File, Video, Image as ImageIcon, Mic, MessagesSquare } from "lucide-react";
 import { format } from "date-fns";
 
 import { useAuth } from "@/context/AuthContext";
@@ -15,7 +15,6 @@ import { createChat } from "@/lib/chat";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ChatPage() {
@@ -60,7 +59,6 @@ export default function ChatPage() {
                 <h1 className="text-3xl font-bold">Chat</h1>
                 <div className="flex items-center gap-2">
                     <Button variant="outline" size="icon" className="rounded-full"><Search className="h-5 w-5" /></Button>
-                    <Button className="rounded-full font-semibold">Subscribe</Button>
                 </div>
             </div>
         </header>
@@ -92,34 +90,26 @@ export default function ChatPage() {
                 </div>
             </section>
             
-            <Tabs defaultValue="all" className="w-full">
-                <TabsList className="grid w-full grid-cols-4 bg-muted rounded-full h-12">
-                    <TabsTrigger value="all" className="rounded-full">All</TabsTrigger>
-                    <TabsTrigger value="groups" className="rounded-full">Groups</TabsTrigger>
-                    <TabsTrigger value="contacts" className="rounded-full">Contacts</TabsTrigger>
-                    <TabsTrigger value="archive" className="rounded-full">Archive</TabsTrigger>
-                </TabsList>
-                <TabsContent value="all" className="mt-6">
-                    <h3 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground mb-4">
-                        <Pin className="h-4 w-4 -rotate-45" />
-                        Pinned Chats
-                    </h3>
-                    <div className="space-y-1">
-                        {chatsLoading ? (
-                             Array.from({ length: 3 }).map((_, i) => <ChatSkeleton key={i} />)
-                        ) : chats && chats.length > 0 ? (
-                            chats.map((chat) => (
-                                <ChatItem key={chat.id} chat={chat} currentUserId={user!.uid} />
-                            ))
-                        ) : (
-                            <div className="text-center py-16 bg-muted/50 rounded-2xl">
-                                <p className="font-semibold">No chats yet</p>
-                                <p className="text-sm text-muted-foreground mt-1">Start a conversation with someone from above!</p>
-                            </div>
-                        )}
-                    </div>
-                </TabsContent>
-            </Tabs>
+            <section>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground mb-4">
+                    <MessagesSquare className="h-4 w-4" />
+                    Recent Chats
+                </h3>
+                <div className="space-y-1">
+                    {chatsLoading ? (
+                         Array.from({ length: 3 }).map((_, i) => <ChatSkeleton key={i} />)
+                    ) : chats && chats.length > 0 ? (
+                        chats.map((chat) => (
+                            <ChatItem key={chat.id} chat={chat} currentUserId={user!.uid} />
+                        ))
+                    ) : (
+                        <div className="text-center py-16 bg-muted/50 rounded-2xl">
+                            <p className="font-semibold">No chats yet</p>
+                            <p className="text-sm text-muted-foreground mt-1">Start a conversation with someone from above!</p>
+                        </div>
+                    )}
+                </div>
+            </section>
         </main>
     </div>
   );
