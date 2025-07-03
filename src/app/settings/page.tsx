@@ -1,24 +1,28 @@
+
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronRight, LogOut, Palette, UserCircle, Moon, Sun, Lock, Fingerprint } from "lucide-react";
+import { ChevronRight, LogOut, Palette, UserCircle, Moon, Sun, Lock, Fingerprint, KeyRound, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import ChangePasswordDialog from "@/components/settings/ChangePasswordDialog";
+import DeleteAccountDialog from "@/components/settings/DeleteAccountDialog";
 
-function SettingsItem({ icon, title, description, onClick, control }: { icon: React.ReactNode, title: string, description: string, onClick?: () => void, control?: React.ReactNode }) {
+function SettingsItem({ icon, title, description, onClick, control, isDestructive = false }: { icon: React.ReactNode, title: string, description: string, onClick?: () => void, control?: React.ReactNode, isDestructive?: boolean }) {
   const isClickable = !!onClick;
   const Component = isClickable ? "button" : "div";
 
   return (
     <Component
       onClick={onClick}
-      className={`flex items-center w-full p-4 text-left ${isClickable ? 'hover:bg-muted transition-colors rounded-lg' : ''}`}
+      className={`flex items-center w-full p-4 text-left ${isClickable ? 'hover:bg-muted transition-colors rounded-lg' : ''} ${isDestructive ? 'text-destructive' : ''}`}
     >
-      <div className="mr-4 text-primary">{icon}</div>
+      <div className={`mr-4 ${isDestructive ? 'text-destructive' : 'text-primary'}`}>{icon}</div>
       <div className="flex-grow">
         <p className="font-semibold">{title}</p>
         <p className="text-sm text-muted-foreground">{description}</p>
@@ -31,6 +35,8 @@ function SettingsItem({ icon, title, description, onClick, control }: { icon: Re
 export default function SettingsPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const [isChangePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [isDeleteAccountOpen, setDeleteAccountOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -54,6 +60,7 @@ export default function SettingsPage() {
   }
 
   return (
+    <>
     <div className="flex flex-col h-full bg-background text-foreground">
       <header className="p-4 border-b sticky top-0 bg-background/80 backdrop-blur-sm z-10">
         <h1 className="text-2xl font-bold text-center">Settings</h1>
@@ -102,12 +109,17 @@ export default function SettingsPage() {
                         description="Coming Soon"
                         control={<Switch disabled />}
                     />
-                    <Separator />
-                     <SettingsItem
+                    <SettingsItem
                         icon={<Lock className="h-6 w-6" />}
                         title="Manage Devices"
                         description="Coming Soon"
                         onClick={() => {}}
+                    />
+                    <SettingsItem
+                        icon={<KeyRound className="h-6 w-6" />}
+                        title="Change Password"
+                        description="Update your account password"
+                        onClick={() => setChangePasswordOpen(true)}
                     />
                     <Separator />
                      <SettingsItem
@@ -116,10 +128,21 @@ export default function SettingsPage() {
                         description="Sign out from your account"
                         onClick={handleLogout}
                     />
+                    <Separator />
+                     <SettingsItem
+                        icon={<Trash2 className="h-6 w-6" />}
+                        title="Delete Account"
+                        description="Permanently delete your account"
+                        onClick={() => setDeleteAccountOpen(true)}
+                        isDestructive
+                    />
                 </div>
             </div>
         </div>
       </main>
     </div>
+    <ChangePasswordDialog open={isChangePasswordOpen} onOpenChange={setChangePasswordOpen} />
+    <DeleteAccountDialog open={isDeleteAccountOpen} onOpenChange={setDeleteAccountOpen} />
+    </>
   );
 }
