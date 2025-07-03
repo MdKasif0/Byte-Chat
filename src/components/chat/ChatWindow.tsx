@@ -8,14 +8,7 @@ import { Paperclip, Send, Phone, Video, MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import React from "react";
 
-const messages = [
-  { id: '1', content: 'Hey, how are you?', sender: 'other', time: '10:30 AM' },
-  { id: '2', content: 'I am good, thanks! How about you?', sender: 'me', time: '10:31 AM' },
-  { id: '3', content: 'Doing great. Just working on the new project. It is a WhatsApp clone with end-to-end encryption.', sender: 'other', time: '10:32 AM' },
-  { id: '4', content: 'That sounds exciting!', sender: 'me', time: '10:33 AM' },
-  { id: '5', content: 'It is! I will show you later. I am using Next.js and Firebase.', sender: 'other', time: '10:34 AM' },
-  { id: '6', content: 'Awesome! Can\'t wait to see it.', sender: 'me', time: '10:35 AM' },
-];
+const messages: any[] = [];
 
 type Chat = {
   id: string;
@@ -62,26 +55,32 @@ export default function ChatWindow({ chat }: { chat: Chat }) {
       </header>
 
       <ScrollArea className="flex-1" ref={scrollAreaRef}>
-        <div className="p-4 space-y-4">
-            {messages.map((message) => (
-                <div
-                key={message.id}
-                className={cn(
-                    "flex w-max max-w-[75%] flex-col gap-1 rounded-lg px-3 py-2 text-sm shadow-sm",
-                    message.sender === 'me'
-                    ? "ml-auto bg-primary text-primary-foreground"
-                    : "bg-card border"
-                )}
-                >
-                <p>{message.content}</p>
-                <span className={cn(
-                    "text-xs self-end",
-                    message.sender === 'me' ? 'text-primary-foreground/80' : 'text-muted-foreground'
-                )}>
-                    {message.time}
-                </span>
+        <div className="p-4 space-y-4 h-full">
+            {messages.length > 0 ? (
+                messages.map((message) => (
+                    <div
+                    key={message.id}
+                    className={cn(
+                        "flex w-max max-w-[75%] flex-col gap-1 rounded-lg px-3 py-2 text-sm shadow-sm",
+                        message.sender === 'me'
+                        ? "ml-auto bg-primary text-primary-foreground"
+                        : "bg-card border"
+                    )}
+                    >
+                    <p>{message.content}</p>
+                    <span className={cn(
+                        "text-xs self-end",
+                        message.sender === 'me' ? 'text-primary-foreground/80' : 'text-muted-foreground'
+                    )}>
+                        {message.time}
+                    </span>
+                    </div>
+                ))
+            ) : (
+                <div className="flex h-full items-center justify-center text-muted-foreground">
+                    <p>No messages yet. Start the conversation!</p>
                 </div>
-            ))}
+            )}
         </div>
       </ScrollArea>
 

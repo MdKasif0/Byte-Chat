@@ -17,12 +17,7 @@ import UserNav from "./UserNav";
 import { usePathname } from "next/navigation";
 import { Button } from "../ui/button";
 
-const chats = [
-  { id: '1', name: 'Alice', lastMessage: 'Hey, how are you?', time: '10:40 AM', avatar: 'https://placehold.co/40x40.png', online: true, aiHint: 'woman smiling' },
-  { id: '2', name: 'Dev Team', lastMessage: 'Bob: See you there!', time: '9:30 AM', avatar: 'https://placehold.co/40x40.png', online: false, aiHint: 'team work' },
-  { id: '3', name: 'Bob', lastMessage: 'Okay, sounds good.', time: 'Yesterday', avatar: 'https://placehold.co/40x40.png', online: true, aiHint: 'man portrait' },
-  { id: '4', name: 'Charlie', lastMessage: 'You sent an image.', time: 'Yesterday', avatar: 'https://placehold.co/40x40.png', online: false, aiHint: 'person thinking' },
-];
+const chats: any[] = [];
 
 export default function ChatList() {
     const pathname = usePathname();
@@ -40,30 +35,36 @@ export default function ChatList() {
       </SidebarHeader>
       <SidebarContent>
         <ScrollArea className="h-full">
-          <SidebarMenu>
-            {chats.map((chat) => (
-              <SidebarMenuItem key={chat.id} className="p-0">
-                <SidebarMenuButton asChild className="h-auto p-2 w-full justify-start" size="lg" isActive={pathname === `/chat/${chat.id}`}>
-                  <Link href={`/chat/${chat.id}`}>
-                    <div className="relative">
-                        <Avatar className="h-10 w-10">
-                            <AvatarImage src={chat.avatar} alt={chat.name} data-ai-hint={chat.aiHint} />
-                            <AvatarFallback>{chat.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        {chat.online && <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white" />}
-                    </div>
-                    <div className="flex-grow text-left overflow-hidden">
-                      <div className="flex justify-between items-center">
-                        <span className="font-semibold truncate">{chat.name}</span>
-                        <span className="text-xs text-muted-foreground shrink-0">{chat.time}</span>
+          {chats.length > 0 ? (
+            <SidebarMenu>
+              {chats.map((chat) => (
+                <SidebarMenuItem key={chat.id} className="p-0">
+                  <SidebarMenuButton asChild className="h-auto p-2 w-full justify-start" size="lg" isActive={pathname === `/chat/${chat.id}`}>
+                    <Link href={`/chat/${chat.id}`}>
+                      <div className="relative">
+                          <Avatar className="h-10 w-10">
+                              <AvatarImage src={chat.avatar} alt={chat.name} data-ai-hint={chat.aiHint} />
+                              <AvatarFallback>{chat.name.charAt(0)}</AvatarFallback>
+                          </Avatar>
+                          {chat.online && <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white" />}
                       </div>
-                      <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
-                    </div>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
+                      <div className="flex-grow text-left overflow-hidden">
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold truncate">{chat.name}</span>
+                          <span className="text-xs text-muted-foreground shrink-0">{chat.time}</span>
+                        </div>
+                        <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
+                      </div>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          ) : (
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              No chats yet.
+            </div>
+          )}
         </ScrollArea>
       </SidebarContent>
       <SidebarFooter>
