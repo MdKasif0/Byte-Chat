@@ -95,7 +95,8 @@ export async function createMessage(
   chatId: string,
   senderId: string,
   content: string,
-  replyTo: Message | null
+  replyTo: Message | null,
+  fileInfo?: { url: string; name: string; type: string }
 ) {
   const chatRef = doc(db, "chats", chatId);
   const messagesRef = collection(chatRef, "messages");
@@ -117,6 +118,7 @@ export async function createMessage(
     timestamp: serverTimestamp() as any, // Cast because serverTimestamp is a sentinel value
     readBy: [senderId],
     ...(replyTo && { replyTo: replyToData }),
+    ...(fileInfo && { fileURL: fileInfo.url, fileName: fileInfo.name, fileType: fileInfo.type }),
   };
 
   const messageRef = await addDoc(messagesRef, newMessage);

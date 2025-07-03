@@ -34,7 +34,7 @@ export interface Chat {
 export interface Message {
   id: string;
   senderId: string;
-  content: string;
+  content: string; // Can be empty if there's a file
   timestamp: Timestamp;
   readBy: string[];
   reactions?: { [key: string]: string[] }; // emoji -> [userId]
@@ -44,4 +44,8 @@ export interface Message {
     content: string;
   };
   isEdited?: boolean;
+  // File attachment fields
+  fileURL?: string;
+  fileName?: string;
+  fileType?: string;
 }

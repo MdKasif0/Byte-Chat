@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { doc, onSnapshot } from "firebase/firestore";
-import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users } from "lucide-react";
+import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2 } from "lucide-react";
 import debounce from "lodash.debounce";
 
 import { useAuth } from "@/context/AuthContext";
@@ -14,6 +14,7 @@ import { db } from "@/lib/firebase/config";
 import { useCollection } from "@/hooks/use-collection";
 import { createMessage, setTypingStatus, markChatAsRead } from "@/lib/chat";
 import type { Chat, Message, UserProfile, MemberProfile } from "@/lib/types";
+import { uploadFile } from "@/lib/storage";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -24,13 +25,14 @@ import { Skeleton } from "../ui/skeleton";
 import { AnimatePresence, motion } from "framer-motion";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import GroupInfoDialog from "./GroupInfoDialog";
+import MediaViewer from "./MediaViewer";
 
 type ChatWindowProps = {
   chatId: string;
 };
 
 const messageSchema = z.object({
-  content: z.string().min(1, "Message cannot be empty."),
+  content: z.string(),
 });
 
 type MessageFormData = z.infer<typeof messageSchema>;
@@ -43,13 +45,21 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfile | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [isGroupInfoOpen, setGroupInfoOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   
+  const [isMediaViewerOpen, setMediaViewerOpen] = useState(false);
+  const [mediaViewerStartIndex, setMediaViewerStartIndex] = useState(0);
+
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: messages, loading: messagesLoading } = useCollection<Message>(
     chatId ? `chats/${chatId}/messages` : null,
     { orderBy: ["timestamp", "asc"] }
   );
+
+  const mediaMessages = messages?.filter(m => m.fileURL) || [];
 
   const form = useForm<MessageFormData>({
     resolver: zodResolver(messageSchema),
@@ -107,24 +117,59 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     form.setValue("content", e.target.value);
-    debouncedSetTypingStatus(true);
-    debouncedSetTypingStatus.flush();
-    setTimeout(() => debouncedSetTypingStatus(false), 3000);
+    if (e.target.value) {
+      debouncedSetTypingStatus(true);
+      debouncedSetTypingStatus.flush();
+      setTimeout(() => debouncedSetTypingStatus(false), 3000);
+    } else {
+        debouncedSetTypingStatus(false);
+        debouncedSetTypingStatus.cancel();
+    }
   };
   
   const onSubmit = async (data: MessageFormData) => {
-    if (!user || !chatId) return;
+    if (!user || !chatId || (!data.content && !selectedFile)) return;
+    setIsUploading(true);
 
-    await createMessage(chatId, user.uid, data.content, replyTo);
+    let fileInfo: { url: string; name: string; type: string } | undefined;
+
+    if (selectedFile) {
+      const downloadURL = await uploadFile(selectedFile, `chat-files/${chatId}`);
+      fileInfo = {
+        url: downloadURL,
+        name: selectedFile.name,
+        type: selectedFile.type,
+      };
+    }
+
+    await createMessage(chatId, user.uid, data.content, replyTo, fileInfo);
     
     form.reset();
     setReplyTo(null);
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    
     debouncedSetTypingStatus(false);
     debouncedSetTypingStatus.cancel();
+    setIsUploading(false);
   };
+  
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setSelectedFile(e.target.files[0]);
+    }
+  }
 
   const getSenderProfile = (senderId: string) => {
     return chat?.memberProfiles.find(p => p.uid === senderId);
+  }
+
+  const openMedia = (messageId: string) => {
+    const index = mediaMessages.findIndex(m => m.id === messageId);
+    if (index > -1) {
+        setMediaViewerStartIndex(index);
+        setMediaViewerOpen(true);
+    }
   }
 
   const typingUsers = chat?.typing.filter(uid => uid !== user?.uid)
@@ -161,10 +206,17 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   }
   
   const typingText = `${typingUsers.slice(0, 2).join(', ')}${typingUsers.length > 2 ? ' and others' : ''} are typing...`;
+  const isSendDisabled = form.formState.isSubmitting || isUploading || (!form.getValues("content") && !selectedFile);
 
   return (
     <>
     {chat && <GroupInfoDialog isOpen={isGroupInfoOpen} setIsOpen={setGroupInfoOpen} chat={chat} />}
+    <MediaViewer
+        isOpen={isMediaViewerOpen}
+        setIsOpen={setMediaViewerOpen}
+        mediaItems={mediaMessages}
+        startIndex={mediaViewerStartIndex}
+    />
     <div className="flex h-full max-h-screen flex-col bg-card/50 md:rounded-xl overflow-hidden">
       <header className="flex shrink-0 items-center justify-between border-b p-2 md:p-4 bg-card">
         <div className="flex items-center gap-2 md:gap-4">
@@ -220,7 +272,9 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
                         message={message}
                         isGroupChat={chat.isGroup} 
                         senderProfile={getSenderProfile(message.senderId)}
-                        onReply={setReplyTo} />
+                        onReply={setReplyTo}
+                        onMediaClick={openMedia}
+                    />
                 ))
             ) : (
                 <div className="flex h-full items-center justify-center text-muted-foreground"><p>No messages yet. Start the conversation!</p></div>
@@ -229,17 +283,39 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
       </ScrollArea>
 
       <footer className="border-t p-2 md:p-4 bg-card space-y-2">
+        <AnimatePresence>
+        {selectedFile && (
+            <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="relative flex items-center justify-between rounded-md bg-secondary p-2 text-sm"
+            >
+                <div className="flex items-center gap-2 overflow-hidden">
+                    {selectedFile.type.startsWith('image/') ? (
+                        <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                    ) : (
+                        <FileText className="h-5 w-5 text-muted-foreground" />
+                    )}
+                    <p className="truncate text-muted-foreground">{selectedFile.name}</p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => { setSelectedFile(null); if(fileInputRef.current) fileInputRef.current.value = ""; }}><X className="h-4 w-4" /></Button>
+            </motion.div>
+        )}
+
         {replyTo && (
             <div className="flex items-center justify-between rounded-md bg-secondary p-2 text-sm">
                 <div className="border-l-2 border-primary pl-2 overflow-hidden">
                     <p className="font-semibold text-primary">Replying to {replyTo.senderId === user?.uid ? 'yourself' : getSenderProfile(replyTo.senderId)?.displayName}</p>
-                    <p className="truncate text-muted-foreground">{replyTo.content}</p>
+                    <p className="truncate text-muted-foreground">{replyTo.content || "Attachment"}</p>
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => setReplyTo(null)}><X className="h-4 w-4" /></Button>
             </div>
         )}
+        </AnimatePresence>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex w-full items-center space-x-2">
-          <Button variant="ghost" size="icon" type="button"><Smile className="h-5 w-5" /></Button>
+          <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
+          <Button variant="ghost" size="icon" type="button" onClick={() => fileInputRef.current?.click()}><Paperclip className="h-5 w-5" /></Button>
           <Input 
             {...form.register("content")}
             placeholder="Type your message..." 
@@ -247,8 +323,8 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
             autoComplete="off"
             onChange={handleInputChange} 
           />
-          <Button type="submit" size="icon" disabled={form.formState.isSubmitting}>
-            <Send className="h-5 w-5" />
+          <Button type="submit" size="icon" disabled={isSendDisabled}>
+            {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             <span className="sr-only">Send message</span>
           </Button>
         </form>

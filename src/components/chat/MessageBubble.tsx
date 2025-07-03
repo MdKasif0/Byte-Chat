@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
+import Image from "next/image";
+import { saveAs } from "file-saver";
 import { format } from "date-fns";
-import { Check, CheckCheck, CornerUpLeft, Edit, SmilePlus, Trash2, MoreHorizontal } from "lucide-react";
+import { Check, CheckCheck, CornerUpLeft, Edit, SmilePlus, Trash2, MoreHorizontal, FileText, Download, PlayCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import type { Message, MemberProfile } from "@/lib/types";
@@ -23,11 +25,62 @@ const EMOJI_REACTIONS = ["👍", "❤️", "😂", "😯", "😢", "🙏"];
 type MessageBubbleProps = {
   message: Message;
   onReply: (message: Message) => void;
+  onMediaClick: (messageId: string) => void;
   isGroupChat?: boolean;
   senderProfile?: MemberProfile;
 };
 
-export default function MessageBubble({ message, onReply, isGroupChat, senderProfile }: MessageBubbleProps) {
+const MediaAttachment = ({ message, onMediaClick }: Pick<MessageBubbleProps, 'message' | 'onMediaClick'>) => {
+    if (!message.fileURL || !message.fileType) return null;
+  
+    const isImage = message.fileType.startsWith("image/");
+    const isVideo = message.fileType.startsWith("video/");
+  
+    if (isImage) {
+      return (
+        <button onClick={() => onMediaClick(message.id)} className="relative mt-2 w-full max-w-xs aspect-video rounded-lg overflow-hidden cursor-pointer">
+            <Image
+                src={message.fileURL}
+                alt={message.fileName || "Image attachment"}
+                layout="fill"
+                objectFit="cover"
+                className="transition-transform duration-300 hover:scale-105"
+            />
+        </button>
+      );
+    }
+  
+    if (isVideo) {
+      return (
+        <div className="relative mt-2 w-full max-w-xs aspect-video rounded-lg overflow-hidden bg-black group/video">
+            <video src={message.fileURL} className="w-full h-full object-cover" />
+            <div 
+                className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/video:opacity-100 transition-opacity cursor-pointer"
+                onClick={() => onMediaClick(message.id)}
+            >
+                <PlayCircle className="h-12 w-12 text-white" />
+            </div>
+        </div>
+      );
+    }
+  
+    // Fallback for other file types
+    return (
+      <div className="mt-2 flex items-center gap-3 rounded-lg border bg-secondary/50 p-3">
+        <FileText className="h-8 w-8 text-secondary-foreground" />
+        <div className="flex-grow overflow-hidden">
+            <p className="truncate font-medium">{message.fileName}</p>
+            <p className="text-xs text-muted-foreground">Document</p>
+        </div>
+        <Button size="icon" variant="ghost" onClick={() => saveAs(message.fileURL!, message.fileName)}>
+          <Download className="h-5 w-5" />
+        </Button>
+      </div>
+    );
+};
+
+
+export default function MessageBubble({ message, onReply, onMediaClick, isGroupChat, senderProfile }: MessageBubbleProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
@@ -84,9 +137,11 @@ export default function MessageBubble({ message, onReply, isGroupChat, senderPro
             {message.replyTo && (
                 <div className="mb-1 rounded-md bg-black/20 p-2 text-xs">
                     <p className="font-bold">{message.replyTo.senderName}</p>
-                    <p className="truncate">{message.replyTo.content}</p>
+                    <p className="truncate">{message.replyTo.content || "Attachment"}</p>
                 </div>
             )}
+            
+            {message.fileURL && <MediaAttachment message={message} onMediaClick={onMediaClick} />}
 
             {/* Message content */}
             {isEditing ? (
@@ -101,7 +156,7 @@ export default function MessageBubble({ message, onReply, isGroupChat, senderPro
                     <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)}>Cancel</Button>
                 </div>
             ) : (
-                <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                message.content && <p className="whitespace-pre-wrap break-words">{message.content}</p>
             )}
 
             {/* Reactions */}
@@ -119,8 +174,8 @@ export default function MessageBubble({ message, onReply, isGroupChat, senderPro
             )}
         
             {/* Timestamp and read receipt */}
-            <div className="flex items-center gap-1 self-end">
-                {message.isEdited && !isEditing && <span className="text-xs text-muted-foreground">(edited)</span>}
+            <div className="flex items-center gap-1 self-end mt-1">
+                {message.isEdited && !isEditing && <span className="text-xs text-muted-foreground/80">(edited)</span>}
                 <span className={cn(
                     "text-xs",
                     isSender ? 'text-primary-foreground/80' : 'text-muted-foreground'
@@ -165,20 +220,20 @@ export default function MessageBubble({ message, onReply, isGroupChat, senderPro
                         </div>
                     </PopoverContent>
                 </Popover>
+                {isSender && message.content && (
+                    <DropdownMenuItem onSelect={() => {
+                        setEditedContent(message.content);
+                        setIsEditing(true);
+                    }}>
+                        <Edit className="mr-2 h-4 w-4" />
+                        <span>Edit</span>
+                    </DropdownMenuItem>
+                )}
                 {isSender && (
-                    <>
-                        <DropdownMenuItem onSelect={() => {
-                            setEditedContent(message.content);
-                            setIsEditing(true);
-                        }}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            <span>Edit</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={handleDelete} className="text-destructive">
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            <span>Delete</span>
-                        </DropdownMenuItem>
-                    </>
+                    <DropdownMenuItem onSelect={handleDelete} className="text-destructive">
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        <span>Delete</span>
+                    </DropdownMenuItem>
                 )}
             </DropdownMenuContent>
         </DropdownMenu>

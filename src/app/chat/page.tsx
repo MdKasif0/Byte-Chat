@@ -3,12 +3,12 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { collection, query, where, orderBy } from "firebase/firestore";
-import { Search, Pin, Check, Users } from "lucide-react";
+import { Search, Pin, Check, Users, File, Video, Image as ImageIcon } from "lucide-react";
 import { format } from "date-fns";
 
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase/config";
-import type { Chat, UserProfile } from "@/lib/types";
+import type { Chat, UserProfile, Message } from "@/lib/types";
 import { useCollection } from "@/hooks/use-collection";
 import { useToast } from "@/hooks/use-toast";
 import { createChat } from "@/lib/chat";
@@ -149,6 +149,32 @@ function ChatSkeleton() {
     )
 }
 
+function LastMessagePreview({ lastMessage, currentUserId }: { lastMessage: Message, currentUserId: string }) {
+    if (!lastMessage) return <p className="text-sm text-muted-foreground truncate">No messages yet.</p>;
+
+    const wasSentByMe = lastMessage.senderId === currentUserId;
+    let preview: React.ReactNode;
+
+    if (lastMessage.fileURL) {
+        if (lastMessage.fileType?.startsWith('image/')) {
+            preview = <><ImageIcon className="h-4 w-4 mr-1" />Photo</>;
+        } else if (lastMessage.fileType?.startsWith('video/')) {
+            preview = <><Video className="h-4 w-4 mr-1" />Video</>;
+        } else {
+            preview = <><File className="h-4 w-4 mr-1" />{lastMessage.fileName || 'File'}</>;
+        }
+    } else {
+        preview = lastMessage.content || "No messages yet.";
+    }
+
+    return (
+        <p className="text-sm text-muted-foreground truncate flex items-center gap-1">
+            {wasSentByMe && <Check className="h-4 w-4" />} 
+            {preview}
+        </p>
+    );
+}
+
 function ChatItem({ chat, currentUserId }: { chat: Chat, currentUserId: string }) {
     const isGroup = chat.isGroup;
     const otherMember = !isGroup ? chat.memberProfiles.find(member => member.uid !== currentUserId) : null;
@@ -184,10 +210,7 @@ function ChatItem({ chat, currentUserId }: { chat: Chat, currentUserId: string }
                         )}
                     </div>
                     <div className="flex justify-between items-start mt-1">
-                        <p className="text-sm text-muted-foreground truncate flex items-center gap-1">
-                           {chat.lastMessage?.senderId === currentUserId && <Check className="h-4 w-4" />} 
-                           {chat.lastMessage?.content || "No messages yet."}
-                        </p>
+                       {chat.lastMessage ? <LastMessagePreview lastMessage={chat.lastMessage} currentUserId={currentUserId} /> : <p className="text-sm text-muted-foreground truncate">No messages yet.</p>}
                         {unreadCount > 0 && (
                             <span className="flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-primary text-primary-foreground text-xs font-bold">
                                 {unreadCount}
