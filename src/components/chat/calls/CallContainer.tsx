@@ -28,6 +28,7 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
     const [incomingCall, setIncomingCall] = useState<Call | null>(null);
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+    const [callDuration, setCallDuration] = useState(0);
 
     const pcRef = useRef<RTCPeerConnection | null>(null);
     const callTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -83,6 +84,13 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
             }
         };
 
+        pc.onconnectionstatechange = () => {
+            if (pc.connectionState === 'failed') {
+                console.log('WebRTC connection failed, attempting to restart ICE...');
+                pc.restartIce();
+            }
+        };
+
         pcRef.current = pc;
         return pc;
     }, [activeCall, user.uid]);
@@ -111,11 +119,11 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
 
         // Listen for answer and ICE candidates
         const unsubCall = onSnapshot(doc(db, 'calls', callId), async (docSnap) => {
-            const callData = docSnap.data();
+            const callData = docSnap.data() as Call;
             if (callData?.answer && pc.signalingState !== 'stable') {
                 await pc.setRemoteDescription(new RTCSessionDescription(callData.answer));
             }
-            if (callData?.status !== 'ringing' && callData?.status !== 'connected' ) {
+            if (callData?.status && !['ringing', 'connected'].includes(callData.status) ) {
                 handleEndCall(false); // Don't update status again if remote ended
             }
             if(callData?.status === 'connected') {
@@ -123,7 +131,7 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
             }
         });
 
-        const unsubCandidates = onSnapshot(collection(db, 'calls', callId, 'callerCandidates'), (snapshot) => {
+        const unsubCandidates = onSnapshot(collection(db, 'calls', callId, 'calleeCandidates'), (snapshot) => {
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'added') pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
             });
@@ -181,7 +189,7 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
         if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
 
         if (updateStatus && activeCall) {
-            updateCallStatus(activeCall.id, 'ended');
+            updateCallStatus(activeCall.id, 'ended', callDuration);
         }
 
         pcRef.current?.close();
@@ -191,7 +199,8 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
         setLocalStream(null);
         setRemoteStream(null);
         setActiveCall(null);
-    }, [activeCall, localStream]);
+        setCallDuration(0);
+    }, [activeCall, localStream, callDuration]);
 
     return (
         <>
@@ -207,7 +216,9 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
                     call={activeCall}
                     localStream={localStream}
                     remoteStream={remoteStream}
-                    onHangup={handleEndCall}
+                    onHangup={() => handleEndCall(true)}
+                    duration={callDuration}
+                    setDuration={setCallDuration}
                 />
             )}
         </>

@@ -66,6 +66,8 @@ export interface Call {
   callerName: string;
   callerPhotoURL: string;
   calleeId: string;
+  calleeName?: string;
+  calleePhotoURL?: string;
   status: 'ringing' | 'connected' | 'rejected' | 'ended' | 'unanswered' | 'cancelled';
   type: CallType;
   offer?: { sdp: string; type: 'offer' };
@@ -73,6 +75,7 @@ export interface Call {
   createdAt: Timestamp;
   connectedAt?: Timestamp;
   endedAt?: Timestamp;
+  duration?: number;
 }
 
 export interface IceCandidateData {

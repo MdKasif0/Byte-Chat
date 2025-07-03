@@ -14,15 +14,16 @@ type CallViewProps = {
     localStream: MediaStream | null;
     remoteStream: MediaStream | null;
     onHangup: () => void;
+    duration: number;
+    setDuration: React.Dispatch<React.SetStateAction<number>>;
 };
 
-export default function CallView({ call, localStream, remoteStream, onHangup }: CallViewProps) {
+export default function CallView({ call, localStream, remoteStream, onHangup, duration, setDuration }: CallViewProps) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraOff, setIsCameraOff] = useState(call.type === 'audio');
-    const [duration, setDuration] = useState(0);
 
     useEffect(() => {
         if (localStream && localVideoRef.current) {
@@ -42,7 +43,7 @@ export default function CallView({ call, localStream, remoteStream, onHangup }: 
             }, 1000);
         }
         return () => clearInterval(timer);
-    }, [call.status]);
+    }, [call.status, setDuration]);
 
     const toggleMute = () => {
         localStream?.getAudioTracks().forEach(track => {
@@ -67,18 +68,31 @@ export default function CallView({ call, localStream, remoteStream, onHangup }: 
     
     const statusText = {
         ringing: 'Ringing...',
-        connected: 'Connected',
+        connected: formatDuration(duration),
         ended: 'Call Ended',
         rejected: 'Call Rejected',
         unanswered: 'Call Unanswered',
         cancelled: 'Call Cancelled',
-    }[call.status];
+    }[call.status] || '';
+
+    const getOtherUserInfo = () => {
+        // This assumes the `call` object has details for both caller and callee
+        // and we can determine which one is the other user.
+        // For simplicity, we'll just display callee info for outgoing, and caller for incoming
+        // A more robust solution might need to check the current user's ID
+        return {
+            name: call.calleeName || call.callerName,
+            photoURL: call.calleePhotoURL || call.callerPhotoURL,
+        }
+    }
+
+    const otherUser = getOtherUserInfo();
 
     return (
         <div className="fixed inset-0 z-50 bg-black text-white flex flex-col">
             {/* Remote Video */}
             <AnimatePresence>
-                {remoteStream ? (
+                {remoteStream && !isCameraOff ? (
                     <motion.video
                         ref={remoteVideoRef}
                         autoPlay
@@ -109,7 +123,7 @@ export default function CallView({ call, localStream, remoteStream, onHangup }: 
             {/* Status Text (when no remote video) */}
             <div className="relative flex-1 flex items-center justify-center">
                  <AnimatePresence>
-                    {!remoteStream && (
+                    {(!remoteStream || isCameraOff) && (
                          <motion.div 
                             className="flex flex-col items-center gap-4 text-center"
                             initial={{ opacity: 0, scale: 0.8 }}
@@ -117,10 +131,10 @@ export default function CallView({ call, localStream, remoteStream, onHangup }: 
                             exit={{ opacity: 0, scale: 0.8 }}
                          >
                             <Avatar className="h-32 w-32 border-4 border-white/20">
-                                <AvatarImage src={call.callerPhotoURL} />
-                                <AvatarFallback>{call.callerName?.[0]}</AvatarFallback>
+                                <AvatarImage src={otherUser.photoURL} />
+                                <AvatarFallback>{otherUser.name?.[0]}</AvatarFallback>
                             </Avatar>
-                            <h2 className="text-3xl font-bold">{call.callerName}</h2>
+                            <h2 className="text-3xl font-bold">{otherUser.name}</h2>
                             <p className="text-lg text-white/80">{statusText}</p>
                          </motion.div>
                     )}
@@ -138,7 +152,7 @@ export default function CallView({ call, localStream, remoteStream, onHangup }: 
                     exit={{ opacity: 0 }}
                     className="absolute bottom-32 right-4 w-28 h-auto aspect-[3/4] rounded-2xl overflow-hidden border-2 border-white/50 shadow-2xl cursor-grab active:cursor-grabbing z-10"
                 >
-                    <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                     {!isCameraOff && <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />}
                 </motion.div>
             )}
             </AnimatePresence>
@@ -166,8 +180,8 @@ export default function CallView({ call, localStream, remoteStream, onHangup }: 
                             {isMuted ? <MicOff /> : <Mic />}
                         </Button>
                         <Button onClick={onHangup} className="rounded-full h-12 bg-red-500 hover:bg-red-600 px-5 text-white text-base">
-                            <Phone className="mr-2 h-5 w-5"/>
-                            <span>{call.status === 'connected' ? formatDuration(duration) : ''}</span>
+                            <PhoneOff className="mr-2 h-5 w-5"/>
+                            <span>{call.status === 'connected' ? 'End' : 'Cancel'}</span>
                         </Button>
                     </div>
                 </motion.div>

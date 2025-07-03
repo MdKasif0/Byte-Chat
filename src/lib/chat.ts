@@ -296,12 +296,17 @@ export async function createCall(
     type: CallType,
     offer: RTCSessionDescriptionInit
 ): Promise<string> {
+    const calleeDoc = await getDoc(doc(db, 'users', calleeId));
+    const callee = calleeDoc.data() as UserProfile | undefined;
+
     const callData: Omit<Call, 'id'> = {
         chatId,
         callerId: caller.uid,
         callerName: caller.displayName,
         callerPhotoURL: caller.photoURL,
         calleeId,
+        calleeName: callee?.displayName,
+        calleePhotoURL: callee?.photoURL,
         status: 'ringing',
         type,
         offer: {
@@ -327,11 +332,14 @@ export async function updateCallWithAnswer(callId: string, answer: RTCSessionDes
     });
 }
 
-export async function updateCallStatus(callId: string, status: Call['status']) {
+export async function updateCallStatus(callId: string, status: Call['status'], duration?: number) {
     const callRef = doc(db, 'calls', callId);
-    const payload: { status: Call['status'], endedAt?: any } = { status };
+    const payload: { status: Call['status'], endedAt?: any, duration?: number } = { status };
     if (status === 'ended' || status === 'rejected' || status === 'unanswered' || status === 'cancelled') {
         payload.endedAt = serverTimestamp();
+        if (duration !== undefined) {
+            payload.duration = duration;
+        }
     }
     await updateDoc(callRef, payload);
 }

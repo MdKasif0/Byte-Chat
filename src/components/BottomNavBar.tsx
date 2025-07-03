@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { MessagesSquare, Plus, Settings } from 'lucide-react';
+import { MessagesSquare, Plus, Settings, Phone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import NewChatDialog from './chat/NewChatDialog';
@@ -14,6 +14,7 @@ export default function BottomNavBar() {
   // Home is /chat, Settings is /settings
   const navItems = [
     { href: '/chat', icon: MessagesSquare, label: 'Chat' },
+    { href: '/calls', icon: Phone, label: 'Calls' },
     { href: '/settings', icon: Settings, label: 'Settings' },
   ];
 
