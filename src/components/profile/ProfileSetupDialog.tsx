@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
   const { user, refreshProfile } = useAuth();
   const { toast } = useToast();
   const supabase = createClient();
+  const router = useRouter();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -92,6 +94,7 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
       
       await refreshProfile();
       onOpenChange(false);
+      router.push('/profile');
 
     } catch (error: any) {
       console.error("Error setting up profile: ", error);
