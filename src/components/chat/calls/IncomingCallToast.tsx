@@ -39,11 +39,11 @@ export default function IncomingCallToast({ call, onAccept, onReject }: Incoming
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                     <Avatar className="h-12 w-12">
-                        <AvatarImage src={call.callerPhotoURL} alt={call.callerName} />
-                        <AvatarFallback>{call.callerName?.[0]}</AvatarFallback>
+                        <AvatarImage src={call.caller_photo_url} alt={call.caller_name} />
+                        <AvatarFallback>{call.caller_name?.[0]}</AvatarFallback>
                     </Avatar>
                     <div>
-                        <p className="font-bold">{call.callerName}</p>
+                        <p className="font-bold">{call.caller_name}</p>
                         <p className="text-sm text-muted-foreground">Incoming {call.type} call...</p>
                     </div>
                 </div>

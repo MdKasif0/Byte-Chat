@@ -81,8 +81,8 @@ export default function CallView({ call, localStream, remoteStream, onHangup, du
         // For simplicity, we'll just display callee info for outgoing, and caller for incoming
         // A more robust solution might need to check the current user's ID
         return {
-            name: call.calleeName || call.callerName,
-            photoURL: call.calleePhotoURL || call.callerPhotoURL,
+            name: call.callee_name || call.caller_name,
+            photoURL: call.callee_photo_url || call.caller_photo_url,
         }
     }
 

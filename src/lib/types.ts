@@ -23,7 +23,7 @@ export interface Chat {
   created_at: string;
   wallpaper_url?: string;
   
-  is_group?: boolean;
+  is_group: boolean;
   group_name?: string;
   group_avatar_url?: string;
   admins?: string[];
@@ -73,4 +73,10 @@ export interface Call {
   connected_at?: string;
   ended_at?: string;
   duration?: number;
+}
+
+export interface IceCandidateData {
+    call_id: string;
+    sender: 'caller' | 'callee';
+    candidate: RTCIceCandidateInit;
 }

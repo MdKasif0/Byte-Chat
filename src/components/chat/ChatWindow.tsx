@@ -29,6 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import WallpaperDialog from "./WallpaperDialog";
 import CallContainer from "./calls/CallContainer";
+import { createClient } from "@/lib/supabase/client";
 
 type ChatWindowProps = {
   chatId: string;
@@ -51,6 +52,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   const { user } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const supabase = createClient();
   const [chat, setChat] = useState<Chat | null>(null);
   const [otherUser, setOtherUser] = useState<MemberProfile | null>(null);
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfile | null>(null);
@@ -112,31 +114,92 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
 
   useEffect(() => {
     if (!chatId || !user) return;
-    // TODO: This should be a realtime subscription
-    const fetchChat = async () => {
-        const chatData = {} as Chat; // fetch chat from supabase
-        setChat(chatData);
-        if (!chatData.is_group) {
-          const otherMember = chatData.member_profiles.find(m => m.id !== user.id) || null;
-          setOtherUser(otherMember);
-        } else {
-          setOtherUser(null);
-        }
-        markChatAsRead(chatId, user.id);
+    
+    const fetchChatData = async () => {
+      const { data, error } = await supabase
+        .from('chats')
+        .select('*')
+        .eq('id', chatId)
+        .single();
+      
+      if (error || !data) {
+        console.error('Error fetching chat data:', error);
+        router.push('/chat');
+        return;
+      }
+      
+      setChat(data as Chat);
+
+      if (!data.is_group) {
+        const otherMember = data.member_profiles.find((m: MemberProfile) => m.id !== user.id) || null;
+        setOtherUser(otherMember);
+      } else {
+        setOtherUser(null);
+      }
+      markChatAsRead(chatId, user.id);
+    };
+
+    fetchChatData();
+
+    const channel = supabase.channel(`chat-${chatId}`)
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'chats',
+            filter: `id=eq.${chatId}`
+        }, (payload) => {
+            const updatedChat = payload.new as Chat;
+            setChat(updatedChat);
+             if (!updatedChat.is_group) {
+                const otherMember = updatedChat.member_profiles.find((m: MemberProfile) => m.id !== user?.id) || null;
+                setOtherUser(otherMember);
+            }
+        })
+        .subscribe();
+    
+    return () => {
+        supabase.removeChannel(channel);
     }
-    fetchChat();
-  }, [chatId, user, router]);
+
+  }, [chatId, user, supabase, router]);
 
   useEffect(() => {
-    if (otherUser?.id) {
-        // TODO: This should be a realtime subscription
-         const fetchOtherUser = async () => {
-            const userProfile = {} as UserProfile; // fetch user from supabase
-            setOtherUserProfile(userProfile);
-         }
-         fetchOtherUser();
+    if (!otherUser?.id) {
+        setOtherUserProfile(null);
+        return;
+    };
+
+    const fetchOtherUserProfile = async () => {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', otherUser.id)
+            .single();
+        if (error) {
+            console.error("Error fetching other user's profile:", error);
+        } else {
+            setOtherUserProfile(data as UserProfile);
+        }
+    };
+
+    fetchOtherUserProfile();
+
+    const channel = supabase.channel(`profile-${otherUser.id}`)
+        .on('postgres_changes', {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'profiles',
+            filter: `id=eq.${otherUser.id}`
+        }, (payload) => {
+            setOtherUserProfile(payload.new as UserProfile);
+        })
+        .subscribe();
+
+    return () => {
+        supabase.removeChannel(channel);
     }
-  }, [otherUser]);
+  }, [otherUser, supabase]);
+
 
   useEffect(() => {
     const viewport = scrollAreaRef.current?.querySelector("div");
@@ -291,11 +354,11 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     }
   }
 
-  const typingUsers = chat?.typing.filter(uid => uid !== user?.id)
+  const typingUsers = chat?.typing?.filter(uid => uid !== user?.id)
     .map(uid => chat.member_profiles.find(p => p.id === uid)?.display_name)
     .filter(Boolean) || [];
 
-  const isMuted = chat?.muted_by?.includes(user!.id);
+  const isMuted = user && chat?.muted_by?.includes(user.id);
 
   const handleToggleMute = async () => {
       if (!user || !chat) return;
@@ -502,7 +565,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
             <div className="flex items-center justify-between rounded-md bg-secondary p-2 text-sm">
                 <div className="border-l-2 border-primary pl-2 overflow-hidden">
                     <p className="font-semibold text-primary">Replying to {replyTo.sender_id === user?.id ? 'yourself' : getSenderProfile(replyTo.sender_id)?.display_name}</p>
-                    <p className="truncate text-muted-foreground">{replyTo.content || "Attachment"}</p>
+                    <p className="truncate">{replyTo.content || "Attachment"}</p>
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => setReplyTo(null)}><X className="h-4 w-4" /></Button>
             </div>

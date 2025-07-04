@@ -41,6 +41,7 @@ export async function createChat(
     member_profiles: userProfiles,
     is_group: false,
     muted_by: [],
+    typing: [],
   });
 
   if (createChatError) {
@@ -72,7 +73,9 @@ export async function createGroupChat(creatorId: string, memberIds: string[], gr
         created_by: creatorId,
         admins: [creatorId],
         members: allMemberIds,
-        member_profiles: userProfiles
+        member_profiles: userProfiles,
+        typing: [],
+        muted_by: [],
     }).select('id').single();
 
     if (createChatError || !newChat) {

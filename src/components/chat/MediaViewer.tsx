@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from "react";
@@ -53,13 +54,13 @@ export default function MediaViewer({ isOpen, setIsOpen, mediaItems, startIndex 
       <DialogContent className="max-w-4xl w-full h-[90vh] bg-black/90 border-none p-0 flex flex-col text-white">
         <DialogHeader className="p-4 flex flex-row items-center justify-between text-white">
           <DialogTitle>
-            {currentItem?.fileName || "Media"}
+            {currentItem?.file_name || "Media"}
           </DialogTitle>
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => saveAs(currentItem.fileURL!, currentItem.fileName)}
+              onClick={() => saveAs(currentItem.file_url!, currentItem.file_name)}
               className="text-white hover:bg-white/20 hover:text-white"
             >
               <Download className="h-5 w-5" />
@@ -77,18 +78,18 @@ export default function MediaViewer({ isOpen, setIsOpen, mediaItems, startIndex 
             <CarouselContent className="h-full">
               {mediaItems.map((item) => (
                 <CarouselItem key={item.id} className="h-full flex items-center justify-center">
-                  {item.fileType?.startsWith("image/") ? (
+                  {item.file_type?.startsWith("image/") ? (
                     <div className="relative w-full h-full">
                         <Image
-                            src={item.fileURL!}
-                            alt={item.fileName || "image"}
+                            src={item.file_url!}
+                            alt={item.file_name || "image"}
                             layout="fill"
                             objectFit="contain"
                         />
                     </div>
-                  ) : item.fileType?.startsWith("video/") ? (
+                  ) : item.file_type?.startsWith("video/") ? (
                     <video
-                      src={item.fileURL!}
+                      src={item.file_url!}
                       controls
                       className="max-w-full max-h-full"
                     />
@@ -96,7 +97,7 @@ export default function MediaViewer({ isOpen, setIsOpen, mediaItems, startIndex 
                     <div className="flex flex-col items-center gap-4 text-white">
                         <FileIcon className="h-24 w-24" />
                         <p>Unsupported file type for preview.</p>
-                        <p className="text-sm text-white/70">{item.fileName}</p>
+                        <p className="text-sm text-white/70">{item.file_name}</p>
                     </div>
                   )}
                 </CarouselItem>

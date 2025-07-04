@@ -47,13 +47,13 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
     // Supabase listener for incoming calls
     useEffect(() => {
         const channel = supabase.channel(`incoming-calls-for-${user.id}`)
-            .on<Call>('postgres_changes', {
+            .on('postgres_changes', {
                 event: 'INSERT',
                 schema: 'public',
                 table: 'calls',
                 filter: `callee_id=eq.${user.id}`
             }, (payload) => {
-                const newCall = payload.new;
+                const newCall = payload.new as Call;
                 if (newCall.status === 'ringing' && !activeCall) {
                     setIncomingCall(newCall);
                 }
@@ -127,8 +127,8 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
 
         // Listen for answer and ICE candidates
         callChannelRef.current = supabase.channel(`call-${callId}`)
-            .on<Call>('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${callId}`}, async (payload) => {
-                const callData = payload.new;
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${callId}`}, async (payload) => {
+                const callData = payload.new as Call;
                 if (callData?.answer && pc.signalingState !== 'stable') {
                     await pc.setRemoteDescription(new RTCSessionDescription(callData.answer as RTCSessionDescriptionInit));
                 }
@@ -142,9 +142,10 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
             .subscribe();
 
         iceCandidateChannelRef.current = supabase.channel(`ice-${callId}-callee`)
-            .on<IceCandidateData>('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ice_candidates', filter: `call_id=eq.${callId}`}, (payload) => {
-                 if (payload.new.sender !== user.id) {
-                    pc.addIceCandidate(new RTCIceCandidate(payload.new.candidate as RTCIceCandidateInit));
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ice_candidates', filter: `call_id=eq.${callId}`}, (payload) => {
+                const candidateData = payload.new as IceCandidateData;
+                if (candidateData.sender !== user.id) {
+                    pc.addIceCandidate(new RTCIceCandidate(candidateData.candidate));
                  }
             })
             .subscribe();
@@ -175,10 +176,11 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
 
         // Listen for ICE candidates from the caller
         iceCandidateChannelRef.current = supabase.channel(`ice-${callId}-caller`)
-            .on<IceCandidateData>('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ice_candidates', filter: `call_id=eq.${callId}`}, (payload) => {
-                 if (payload.new.sender !== user.id) {
-                    pc.addIceCandidate(new RTCIceCandidate(payload.new.candidate as RTCIceCandidateInit));
-                 }
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ice_candidates', filter: `call_id=eq.${callId}`}, (payload) => {
+                const candidateData = payload.new as IceCandidateData;
+                if (candidateData.sender !== user.id) {
+                   pc.addIceCandidate(new RTCIceCandidate(candidateData.candidate));
+                }
             })
             .subscribe();
     };

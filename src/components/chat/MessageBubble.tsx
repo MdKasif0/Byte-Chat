@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
@@ -98,19 +99,19 @@ const AudioPlayer = ({ src }: { src: string }) => {
 };
 
 const MediaAttachment = ({ message, onMediaClick }: Pick<MessageBubbleProps, 'message' | 'onMediaClick'>) => {
-    if (!message.fileURL || !message.fileType) return null;
+    if (!message.file_url || !message.file_type) return null;
   
-    const isImage = message.fileType.startsWith("image/");
-    const isVideo = message.fileType.startsWith("video/");
-    const isAudio = message.fileType.startsWith("audio/");
-    const isVideoClip = isVideo && message.isClip;
+    const isImage = message.file_type.startsWith("image/");
+    const isVideo = message.file_type.startsWith("video/");
+    const isAudio = message.file_type.startsWith("audio/");
+    const isVideoClip = isVideo && message.is_clip;
   
     if (isImage) {
       return (
         <button onClick={() => onMediaClick(message.id)} className="relative mt-2 w-full max-w-xs aspect-video rounded-lg overflow-hidden cursor-pointer">
             <Image
-                src={message.fileURL}
-                alt={message.fileName || "Image attachment"}
+                src={message.file_url}
+                alt={message.file_name || "Image attachment"}
                 layout="fill"
                 objectFit="cover"
                 className="transition-transform duration-300 hover:scale-105"
@@ -122,7 +123,7 @@ const MediaAttachment = ({ message, onMediaClick }: Pick<MessageBubbleProps, 'me
     if (isVideoClip) {
         return (
             <div className="relative mt-2 w-48 h-48 rounded-full overflow-hidden cursor-pointer" onClick={() => onMediaClick(message.id)}>
-                 <video src={message.fileURL} className="w-full h-full object-cover" autoPlay loop muted playsInline />
+                 <video src={message.file_url} className="w-full h-full object-cover" autoPlay loop muted playsInline />
                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity">
                     <PlayCircle className="h-10 w-10 text-white" />
                  </div>
@@ -133,7 +134,7 @@ const MediaAttachment = ({ message, onMediaClick }: Pick<MessageBubbleProps, 'me
     if (isVideo) {
       return (
         <div className="relative mt-2 w-full max-w-xs aspect-video rounded-lg overflow-hidden bg-black group/video">
-            <video src={message.fileURL} className="w-full h-full object-cover" />
+            <video src={message.file_url} className="w-full h-full object-cover" />
             <div 
                 className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/video:opacity-100 transition-opacity cursor-pointer"
                 onClick={() => onMediaClick(message.id)}
@@ -145,7 +146,7 @@ const MediaAttachment = ({ message, onMediaClick }: Pick<MessageBubbleProps, 'me
     }
 
     if (isAudio) {
-        return <AudioPlayer src={message.fileURL} />;
+        return <AudioPlayer src={message.file_url} />;
     }
   
     // Fallback for other file types
@@ -153,10 +154,10 @@ const MediaAttachment = ({ message, onMediaClick }: Pick<MessageBubbleProps, 'me
       <div className="mt-2 flex items-center gap-3 rounded-lg border bg-secondary/50 p-3">
         <FileText className="h-8 w-8 text-secondary-foreground" />
         <div className="flex-grow overflow-hidden">
-            <p className="truncate font-medium">{message.fileName}</p>
+            <p className="truncate font-medium">{message.file_name}</p>
             <p className="text-xs text-muted-foreground">Document</p>
         </div>
-        <Button size="icon" variant="ghost" onClick={() => saveAs(message.fileURL!, message.fileName)}>
+        <Button size="icon" variant="ghost" onClick={() => saveAs(message.file_url!, message.file_name)}>
           <Download className="h-5 w-5" />
         </Button>
       </div>
@@ -170,31 +171,31 @@ export default function MessageBubble({ message, onReply, onMediaClick, isGroupC
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(message.content);
 
-  const isSender = message.senderId === user?.uid;
-  const isRead = message.readBy.length > 1;
-  const isStarred = message.starredBy?.includes(user?.uid || "") || false;
+  const isSender = message.sender_id === user?.id;
+  const isRead = message.read_by && message.read_by.length > 1;
+  const isStarred = message.starred_by?.includes(user?.id || "") || false;
 
   const handleReaction = async (emoji: string) => {
     if (!user) return;
-    await toggleReaction(message.chatId, message.id, emoji, user.uid);
+    await toggleReaction(message.chat_id, message.id, emoji, user.id);
   };
 
   const handleStar = async () => {
     if (!user) return;
     try {
-        await toggleStarMessage(message.chatId, message.id, user.uid);
+        await toggleStarMessage(message.chat_id, message.id, user.id);
     } catch (error) {
         toast({ variant: 'destructive', title: "Failed to star message" });
     }
   }
   
   const handleEdit = async () => {
-      if (editedContent.trim() === '' || editedContent === message.content) {
+      if (editedContent && editedContent.trim() === '') {
           setIsEditing(false);
           return;
       }
       try {
-        await updateMessage(message.chatId, message.id, editedContent);
+        await updateMessage(message.chat_id, message.id, editedContent || "");
         setIsEditing(false);
         toast({ title: "Message updated" });
       } catch (error) {
@@ -205,7 +206,7 @@ export default function MessageBubble({ message, onReply, onMediaClick, isGroupC
   const handleDelete = async () => {
       if (window.confirm("Are you sure you want to delete this message? This action cannot be undone.")) {
         try {
-            await deleteMessage(message.chatId, message.id);
+            await deleteMessage(message.chat_id, message.id);
             toast({ title: "Message deleted" });
         } catch (error) {
             toast({ variant: 'destructive', title: "Failed to delete message" });
@@ -224,24 +225,24 @@ export default function MessageBubble({ message, onReply, onMediaClick, isGroupC
         >
              {/* Sender Name for Group Chats */}
             {isGroupChat && !isSender && (
-                <p className="text-xs font-bold text-primary">{senderProfile?.displayName || "User"}</p>
+                <p className="text-xs font-bold text-primary">{senderProfile?.display_name || "User"}</p>
             )}
 
              {/* Reply block */}
-            {message.replyTo && (
+            {message.reply_to && (
                 <div className="mb-1 rounded-md bg-black/20 p-2 text-xs">
-                    <p className="font-bold">{message.replyTo.senderName}</p>
-                    <p className="truncate">{message.replyTo.content || "Attachment"}</p>
+                    <p className="font-bold">{message.reply_to.sender_name}</p>
+                    <p className="truncate">{message.reply_to.content || "Attachment"}</p>
                 </div>
             )}
             
-            {message.fileURL && <MediaAttachment message={message} onMediaClick={onMediaClick} />}
+            {message.file_url && <MediaAttachment message={message} onMediaClick={onMediaClick} />}
 
             {/* Message content */}
             {isEditing ? (
                 <div className="flex gap-2">
                     <Input 
-                        value={editedContent} 
+                        value={editedContent || ""} 
                         onChange={(e) => setEditedContent(e.target.value)} 
                         className="h-8 bg-background text-foreground"
                         onKeyDown={(e) => e.key === 'Enter' && handleEdit()}
@@ -270,12 +271,12 @@ export default function MessageBubble({ message, onReply, onMediaClick, isGroupC
             {/* Timestamp and read receipt */}
             <div className="flex items-center gap-1 self-end mt-1">
                 {isStarred && <Star className="h-3 w-3 text-yellow-400 fill-yellow-400" />}
-                {message.isEdited && !isEditing && <span className="text-xs text-muted-foreground/80">(edited)</span>}
+                {message.is_edited && !isEditing && <span className="text-xs text-muted-foreground/80">(edited)</span>}
                 <span className={cn(
                     "text-xs",
                     isSender ? 'text-primary-foreground/80' : 'text-muted-foreground'
                 )}>
-                    {message.timestamp ? format(message.timestamp.toDate(), "p") : "sending..."}
+                    {message.created_at ? format(new Date(message.created_at), "p") : "sending..."}
                 </span>
                 {isSender && (
                     isRead ? <CheckCheck size={16} className="text-blue-400" /> : <Check size={16} className={cn(isSender ? 'text-primary-foreground/80' : 'text-muted-foreground')} />
