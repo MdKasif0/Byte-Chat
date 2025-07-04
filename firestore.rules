@@ -3,7 +3,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
+    // Helper Functions
     function isSignedIn() {
       return request.auth != null;
     }
@@ -11,8 +11,12 @@ service cloud.firestore {
     function isUser(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
+    
+    function isChatMember(chatId) {
+        return isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+    }
 
-    // Users: Can only be read by signed in users.
+    // Users: Can be read by any signed-in user.
     // Can only be created or updated by the user themselves.
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -26,8 +30,7 @@ service cloud.firestore {
     // Create/Delete: Only when setting up/changing a user's own number.
     match /phonenumbers/{phoneNumber} {
       allow read: if false;
-      // This is a simplified rule. A more secure version might use a Cloud Function.
-      // It allows a signed-in user to create a document if they are the one being assigned to it.
+      // It allows a signed-in user to create a document if they are the one being created.
       allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
       // Allow a user to delete their own old phone number document.
       allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
@@ -35,27 +38,34 @@ service cloud.firestore {
 
     // Chats: Can only be accessed by members of the chat.
     match /chats/{chatId} {
-      allow read, update: if isSignedIn() && request.auth.uid in resource.data.members;
-      // Only the chat creator can create a chat, enforced by application logic
-      allow create: if isSignedIn();
-
+      allow read, update: if isChatMember(chatId);
+      // Only members can create a chat, enforced by application logic
+      allow create: if isSignedIn() && request.auth.uid in request.resource.data.members;
+      
       // Messages: Can only be accessed by members of the parent chat.
       match /messages/{messageId} {
-        allow read, create: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
-        // Users can update (react, edit) or delete their own messages.
-        allow update, delete: if isSignedIn() && request.auth.uid == resource.data.senderId;
+        allow read, create: if isChatMember(chatId);
+        // Users can edit/delete their own messages, or react (update) if a member.
+        allow update: if isChatMember(chatId);
+        allow delete: if isChatMember(chatId) && request.auth.uid == resource.data.senderId;
       }
     }
 
-    // Calls: Signaling messages can be created by signed-in users and then read/updated by participants.
+    // Calls: Signaling messages can be created by signed-in users and then read/updated
+    // by the caller or callee.
     match /calls/{callId} {
-       allow read, update, delete: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId);
-       allow create: if isSignedIn();
-
-       // ICE Candidates: Sub-collection for WebRTC signaling.
-       match /{collection}/{candidateId} {
-         allow read, create: if isSignedIn() && (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId || request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId);
-       }
+      function isPartyToCall() {
+        return isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId);
+      }
+      
+      allow read, update: if isPartyToCall();
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.callerId;
+      allow delete: if isPartyToCall();
+      
+      // ICE Candidates: Sub-collection for WebRTC signaling.
+      match /{collection}/{candidateId} {
+        allow read, create: if get(/databases/$(database)/documents/calls/$(callId)).data.callerId == request.auth.uid || get(/databases/$(database)/documents/calls/$(callId)).data.calleeId == request.auth.uid;
+      }
     }
 
     // Feedback: Any authenticated user can create feedback.
