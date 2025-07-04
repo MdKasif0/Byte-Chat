@@ -27,9 +27,6 @@ export default function ChatAppLayout({
         router.replace("/login");
       } else if (!user.displayName) {
         setSetupDialogOpen(true);
-      } else {
-        // Once user is logged in and profile is set up, request notification permissions
-        requestPermissionAndToken(user.uid);
       }
     }
   }, [user, loading, router]);
