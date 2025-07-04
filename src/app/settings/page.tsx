@@ -3,8 +3,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase/config";
+import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ChevronRight, LogOut, Palette, UserCircle, Moon, Sun, Lock, Fingerprint, KeyRound, Trash2, MessageSquareQuote, Star, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,6 +36,7 @@ function SettingsItem({ icon, title, description, onClick, control, isDestructiv
 export default function SettingsPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const supabase = createClient();
   const [isChangePasswordOpen, setChangePasswordOpen] = useState(false);
   const [isDeleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [isFeedbackOpen, setFeedbackOpen] = useState(false);
@@ -45,7 +45,8 @@ export default function SettingsPage() {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
       router.push("/login");
     } catch (error: any) {
       toast({

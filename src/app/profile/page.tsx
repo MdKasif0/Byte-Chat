@@ -5,12 +5,10 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { updateProfile } from "firebase/auth";
-import { doc, getDoc, setDoc, writeBatch, Timestamp } from "firebase/firestore";
 import { ArrowLeft, User, Phone, Link2 as LinkIcon, Pencil, Camera, BookText } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 import { useAuth } from "@/context/AuthContext";
-import { auth, db } from "@/lib/firebase/config";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { UserProfile } from "@/lib/types";
+import type { Profile } from "@/lib/types";
 
 const phoneSchema = z.object({
   phone: z.string().min(10, {
@@ -34,10 +32,11 @@ const statusSchema = z.object({
 });
 
 export default function ProfilePage() {
-  const { user } = useAuth();
+  const { user, profile: initialProfile } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const supabase = createClient();
+  const [profile, setProfile] = useState<Profile | null>(initialProfile);
   const [isPhoneDialogOpen, setPhoneDialogOpen] = useState(false);
   const [isStatusDialogOpen, setStatusDialogOpen] = useState(false);
 
@@ -49,99 +48,48 @@ export default function ProfilePage() {
   });
 
   useEffect(() => {
-    if (user) {
-      const fetchProfile = async () => {
-        const userDocRef = doc(db, "users", user.uid);
-        const userDocSnap = await getDoc(userDocRef);
-        let profileData: UserProfile;
-
-        if (userDocSnap.exists()) {
-          profileData = userDocSnap.data() as UserProfile;
-        } else {
-          // Fallback if the user document doesn't exist for some reason.
-          profileData = {
-            uid: user.uid,
-            displayName: user.displayName || 'No number',
-            email: user.email || '',
-            photoURL: user.photoURL || `https://placehold.co/200x200.png`,
-            status: 'Hey there! I am using ByteChat.',
-            isOnline: true,
-            lastSeen: new Timestamp(0, 0), // Placeholder
-          };
-        }
-        
-        setProfile(profileData);
-        phoneForm.reset({ phone: profileData.displayName });
-        statusForm.reset({ status: profileData.status });
-      };
-      fetchProfile();
+    if (initialProfile) {
+        setProfile(initialProfile);
+        phoneForm.reset({ phone: initialProfile.phone });
+        statusForm.reset({ status: initialProfile.status });
     }
-  }, [user, phoneForm, statusForm]);
+  }, [initialProfile, phoneForm, statusForm]);
 
   const onPhoneSubmit = async (values: z.infer<typeof phoneSchema>) => {
     if (!user || !profile) return;
-
-    const newPhoneNumber = values.phone;
-    const oldPhoneNumber = profile.displayName;
-
-    if (newPhoneNumber === oldPhoneNumber) {
-      setPhoneDialogOpen(false);
-      return;
-    }
-
-    const newPhoneNumberRef = doc(db, "phonenumbers", newPhoneNumber);
-    const newPhoneNumberSnap = await getDoc(newPhoneNumberRef);
-
-    if (newPhoneNumberSnap.exists()) {
-      phoneForm.setError("phone", {
-        type: "manual",
-        message: "This phone number is already taken.",
-      });
-      return;
-    }
-
-    try {
-      const batch = writeBatch(db);
-
-      const oldPhoneNumberRef = doc(db, "phonenumbers", oldPhoneNumber);
-      batch.delete(oldPhoneNumberRef);
-
-      batch.set(newPhoneNumberRef, { uid: user.uid });
-
-      const userDocRef = doc(db, "users", user.uid);
-      batch.update(userDocRef, { displayName: newPhoneNumber, phone: newPhoneNumber });
-
-      await batch.commit();
-
-      if (auth.currentUser) {
-        await updateProfile(auth.currentUser, { displayName: newPhoneNumber });
-      }
-      
-      setProfile((p) => (p ? { ...p, displayName: newPhoneNumber, phone: newPhoneNumber } : null));
-      toast({ title: "Success", description: "Phone number updated." });
-      setPhoneDialogOpen(false);
-    } catch (error) {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ phone: values.phone })
+      .eq('id', user.id);
+    
+    if (error) {
       console.error("Error updating phone number:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Could not update your phone number.",
+        description: "Could not update your phone number. It might be taken.",
       });
+    } else {
+      setProfile((p) => (p ? { ...p, phone: values.phone } : null));
+      toast({ title: "Success", description: "Phone number updated." });
+      setPhoneDialogOpen(false);
     }
   };
   
   const onStatusSubmit = async (values: z.infer<typeof statusSchema>) => {
     if (!user) return;
-    try {
-      const userDocRef = doc(db, "users", user.uid);
-      await setDoc(userDocRef, { status: values.status }, { merge: true });
-      
-      setProfile((p) => (p ? { ...p, status: values.status } : null));
-      toast({ title: "Success", description: `Status updated.` });
-      setStatusDialogOpen(false);
-    } catch (error) {
-      console.error("Error updating status:", error);
-      toast({ variant: "destructive", title: "Error", description: `Could not update status.` });
+    const { error } = await supabase
+        .from('profiles')
+        .update({ status: values.status })
+        .eq('id', user.id);
+
+    if (error) {
+        console.error("Error updating status:", error);
+        toast({ variant: "destructive", title: "Error", description: `Could not update status.` });
+    } else {
+        setProfile((p) => (p ? { ...p, status: values.status } : null));
+        toast({ title: "Success", description: `Status updated.` });
+        setStatusDialogOpen(false);
     }
   };
 
@@ -189,8 +137,8 @@ export default function ProfilePage() {
         <section className="flex flex-col items-center text-center gap-2 pt-8 pb-12">
           <div className="relative">
             <Avatar className="w-32 h-32 text-4xl border-2 border-primary/50">
-              <AvatarImage src={profile.photoURL || 'https://placehold.co/200x200.png'} alt={profile.displayName} data-ai-hint="person" />
-              <AvatarFallback>{profile.displayName?.[0].toUpperCase()}</AvatarFallback>
+              <AvatarImage src={profile.photo_url || 'https://placehold.co/200x200.png'} alt={profile.display_name} data-ai-hint="person" />
+              <AvatarFallback>{profile.display_name?.[0].toUpperCase()}</AvatarFallback>
             </Avatar>
             <Button size="icon" className="absolute bottom-1 right-1 rounded-full h-8 w-8 bg-primary hover:bg-primary/90">
                 <Camera className="h-4 w-4" />
@@ -204,7 +152,7 @@ export default function ProfilePage() {
         <section className="py-6 space-y-6">
             <InfoRow icon={<Phone className="text-muted-foreground" />} label="Phone Number">
                 <div className="flex items-center justify-between w-full">
-                    <span>{profile.displayName}</span>
+                    <span>{profile.phone}</span>
                     <Button variant="ghost" size="icon" onClick={() => setPhoneDialogOpen(true)}><Pencil className="h-4 w-4" /></Button>
                 </div>
             </InfoRow>

@@ -6,13 +6,11 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { doc, onSnapshot, collection, query, orderBy, limit as firestoreLimit } from "firebase/firestore";
 import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2, Mic, Camera, StopCircle, Trash2, Bell, BellOff, Wallpaper, Search } from "lucide-react";
 import debounce from "lodash.debounce";
 
 import { useAuth } from "@/context/AuthContext";
-import { db } from "@/lib/firebase/config";
-import { useCollection } from "@/hooks/use-collection";
+import { useRealtimeQuery } from "@/hooks/use-realtime-query";
 import { createMessage, setTypingStatus, markChatAsRead, toggleMuteChat } from "@/lib/chat";
 import type { Chat, Message, UserProfile, MemberProfile, CallType } from "@/lib/types";
 import { uploadFile } from "@/lib/storage";
@@ -83,18 +81,16 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const { data: messagesDesc, loading: messagesLoading } = useRealtimeQuery<Message>({
+    table: 'messages',
+    primaryKey: 'id',
+    filter: { column: 'chat_id', operator: 'eq', value: chatId },
+    orderBy: { column: 'created_at', options: { ascending: false } },
+  });
 
-  const messagesQuery = useMemo(() => (
-    chatId ? query(
-        collection(db, "chats", chatId, "messages"),
-        orderBy("timestamp", "desc"),
-        firestoreLimit(msgLimit)
-    ) : null
-  ), [chatId, msgLimit]);
-
-  const { data: messagesDesc, loading: messagesLoading } = useCollection<Message>(messagesQuery);
   const messages = useMemo(() => messagesDesc?.slice().reverse() || [], [messagesDesc]);
-  const mediaMessages = useMemo(() => messages?.filter(m => m.fileURL) || [], [messages]);
+  const mediaMessages = useMemo(() => messages?.filter(m => m.file_url) || [], [messages]);
 
   const form = useForm<MessageFormData>({
     resolver: zodResolver(messageSchema),
@@ -116,32 +112,29 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
 
   useEffect(() => {
     if (!chatId || !user) return;
-    const unsub = onSnapshot(doc(db, "chats", chatId), (doc) => {
-      if (doc.exists()) {
-        const chatData = { id: doc.id, ...doc.data() } as Chat;
+    // TODO: This should be a realtime subscription
+    const fetchChat = async () => {
+        const chatData = {} as Chat; // fetch chat from supabase
         setChat(chatData);
-        if (!chatData.isGroup) {
-          const otherMember = chatData.memberProfiles.find(m => m.uid !== user.uid) || null;
+        if (!chatData.is_group) {
+          const otherMember = chatData.member_profiles.find(m => m.id !== user.id) || null;
           setOtherUser(otherMember);
         } else {
           setOtherUser(null);
         }
-        markChatAsRead(chatId, user.uid);
-      } else {
-        router.push("/chat");
-      }
-    });
-    return () => unsub();
+        markChatAsRead(chatId, user.id);
+    }
+    fetchChat();
   }, [chatId, user, router]);
 
   useEffect(() => {
-    if (otherUser?.uid) {
-        const unsub = onSnapshot(doc(db, "users", otherUser.uid), (userDoc) => {
-            if (userDoc.exists()) {
-                setOtherUserProfile(userDoc.data() as UserProfile);
-            }
-        });
-        return () => unsub();
+    if (otherUser?.id) {
+        // TODO: This should be a realtime subscription
+         const fetchOtherUser = async () => {
+            const userProfile = {} as UserProfile; // fetch user from supabase
+            setOtherUserProfile(userProfile);
+         }
+         fetchOtherUser();
     }
   }, [otherUser]);
 
@@ -156,7 +149,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   const debouncedSetTypingStatus = useCallback(
     debounce((isTyping: boolean) => {
       if (chatId && user) {
-        setTypingStatus(chatId, user.uid, isTyping);
+        setTypingStatus(chatId, user.id, isTyping);
       }
     }, 500),
     [chatId, user]
@@ -182,7 +175,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
 
     if (selectedFile) {
       const isClip = selectedFile.name.includes('_clip.');
-      const downloadURL = await uploadFile(selectedFile, `chat-files/${chatId}`);
+      const downloadURL = await uploadFile(selectedFile, chatId);
       fileInfo = {
         url: downloadURL,
         name: selectedFile.name,
@@ -191,7 +184,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
       };
     }
 
-    await createMessage(chatId, user.uid, data.content, replyTo, fileInfo);
+    await createMessage(chatId, user.id, data.content, replyTo, fileInfo);
     
     form.reset();
     setReplyTo(null);
@@ -287,7 +280,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   }
 
   const getSenderProfile = (senderId: string) => {
-    return chat?.memberProfiles.find(p => p.uid === senderId);
+    return chat?.member_profiles.find(p => p.id === senderId);
   }
 
   const openMedia = (messageId: string) => {
@@ -298,16 +291,16 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     }
   }
 
-  const typingUsers = chat?.typing.filter(uid => uid !== user?.uid)
-    .map(uid => chat.memberProfiles.find(p => p.uid === uid)?.displayName)
+  const typingUsers = chat?.typing.filter(uid => uid !== user?.id)
+    .map(uid => chat.member_profiles.find(p => p.id === uid)?.display_name)
     .filter(Boolean) || [];
 
-  const isMuted = chat?.mutedBy?.includes(user!.uid);
+  const isMuted = chat?.muted_by?.includes(user!.id);
 
   const handleToggleMute = async () => {
       if (!user || !chat) return;
       try {
-          await toggleMuteChat(chat.id, user.uid, !isMuted);
+          await toggleMuteChat(chat.id, user.id, !isMuted);
           toast({
               title: isMuted ? "Notifications Unmuted" : "Notifications Muted",
               description: `You will ${isMuted ? 'now' : 'no longer'} receive notifications for this chat.`,
@@ -322,16 +315,16 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   }
 
   const handleStartCall = (type: CallType) => {
-      if (chat?.isGroup) {
+      if (chat?.is_group) {
           toast({ title: "Group calls are not supported yet." });
           return;
       }
       if (otherUser) {
-          setCallRequest({ type, calleeId: otherUser.uid });
+          setCallRequest({ type, calleeId: otherUser.id });
       }
   }
 
-  if (!chat || (!otherUser && !chat.isGroup)) {
+  if (!chat || (!otherUser && !chat.is_group)) {
     return (
       <div className="flex h-full flex-col bg-card/50 md:rounded-xl">
         <header className="flex shrink-0 items-center justify-between border-b p-2 md:p-4 bg-card">
@@ -348,15 +341,15 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     )
   }
 
-  const isOnline = otherUserProfile?.isOnline;
-  const statusDisplay = chat.isGroup
+  const isOnline = otherUserProfile?.is_online;
+  const statusDisplay = chat.is_group
     ? `${chat.members.length} members`
     : otherUserProfile?.status || (isOnline ? 'Online' : 'Offline');
   const isStatusOnline = statusDisplay === 'Online';
   
   const headerDetails = {
-    name: chat.isGroup ? chat.groupName : (otherUserProfile?.displayName || otherUser?.displayName),
-    avatarUrl: chat.isGroup ? chat.groupAvatarURL : (otherUserProfile?.photoURL || otherUser?.photoURL),
+    name: chat.is_group ? chat.group_name : (otherUserProfile?.display_name || otherUser?.display_name),
+    avatarUrl: chat.is_group ? chat.group_avatar_url : (otherUserProfile?.photo_url || otherUser?.photo_url),
     status: statusDisplay
   }
   
@@ -377,17 +370,17 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     <div
         className={cn(
             "flex h-full max-h-screen flex-col md:rounded-xl overflow-hidden bg-center bg-cover transition-all",
-            !chat.wallpaperURL && "bg-background"
+            !chat.wallpaper_url && "bg-background"
         )}
         style={{
-            backgroundImage: chat.wallpaperURL ? `url(${chat.wallpaperURL})` : undefined,
+            backgroundImage: chat.wallpaper_url ? `url(${chat.wallpaper_url})` : undefined,
         }}
     >
       <header className="flex shrink-0 items-center justify-between border-b p-2 md:p-4 bg-card/80 backdrop-blur-sm">
         <div className="flex items-center gap-2 md:gap-4">
           <Avatar>
-            <AvatarImage src={headerDetails.avatarUrl} alt={headerDetails.name} data-ai-hint="person portrait" />
-            <AvatarFallback>{chat.isGroup ? <Users /> : headerDetails.name?.charAt(0)}</AvatarFallback>
+            <AvatarImage src={headerDetails.avatarUrl || undefined} alt={headerDetails.name || ""} data-ai-hint="person portrait" />
+            <AvatarFallback>{chat.is_group ? <Users /> : headerDetails.name?.charAt(0)}</AvatarFallback>
           </Avatar>
           <div>
             <h2 className="text-lg font-semibold">{headerDetails.name}</h2>
@@ -396,14 +389,14 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
                 {typingUsers.length > 0 ? (
                   <motion.p key="typing" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="text-primary">{typingText}</motion.p>
                 ) : (
-                   <motion.p key="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={isStatusOnline && !chat.isGroup ? 'text-green-500' : ''}>{headerDetails.status}</motion.p>
+                   <motion.p key="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={isStatusOnline && !chat.is_group ? 'text-green-500' : ''}>{headerDetails.status}</motion.p>
                 )}
               </AnimatePresence>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-1 md:gap-2">
-          {!chat.isGroup && (
+          {!chat.is_group && (
             <>
                 <Button variant="ghost" size="icon" onClick={() => handleStartCall('video')}><Video className="h-5 w-5" /></Button>
                 <Button variant="ghost" size="icon" onClick={() => handleStartCall('audio')}><Phone className="h-5 w-5" /></Button>
@@ -414,7 +407,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
                 <Button variant="ghost" size="icon"><MoreVertical className="h-5 w-5" /></Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-                {chat.isGroup ? (
+                {chat.is_group ? (
                     <DropdownMenuItem onSelect={() => setGroupInfoOpen(true)}>Group Details</DropdownMenuItem>
                 ) : (
                     <DropdownMenuItem>View Contact</DropdownMenuItem>
@@ -464,8 +457,8 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
                     <MessageBubble 
                             key={message.id} 
                             message={message}
-                            isGroupChat={chat.isGroup} 
-                            senderProfile={getSenderProfile(message.senderId)}
+                            isGroupChat={chat.is_group} 
+                            senderProfile={getSenderProfile(message.sender_id)}
                             onReply={setReplyTo}
                             onMediaClick={openMedia}
                         />
@@ -508,7 +501,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
         {replyTo && (
             <div className="flex items-center justify-between rounded-md bg-secondary p-2 text-sm">
                 <div className="border-l-2 border-primary pl-2 overflow-hidden">
-                    <p className="font-semibold text-primary">Replying to {replyTo.senderId === user?.uid ? 'yourself' : getSenderProfile(replyTo.senderId)?.displayName}</p>
+                    <p className="font-semibold text-primary">Replying to {replyTo.sender_id === user?.id ? 'yourself' : getSenderProfile(replyTo.sender_id)?.display_name}</p>
                     <p className="truncate text-muted-foreground">{replyTo.content || "Attachment"}</p>
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => setReplyTo(null)}><X className="h-4 w-4" /></Button>

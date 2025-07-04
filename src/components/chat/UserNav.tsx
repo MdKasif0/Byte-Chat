@@ -1,6 +1,5 @@
 "use client";
 
-import { signOut } from "firebase/auth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LogOut, User as UserIcon, Settings } from "lucide-react";
@@ -15,18 +14,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { auth } from "@/lib/firebase/config";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { createClient } from "@/lib/supabase/client";
 
 export default function UserNav() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const supabase = createClient();
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
       router.push("/login");
     } catch (error: any) {
       toast({
@@ -42,9 +43,9 @@ export default function UserNav() {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-9 w-9 rounded-full">
           <Avatar className="h-9 w-9">
-            <AvatarImage src={user?.photoURL || 'https://placehold.co/40x40.png'} alt="User avatar" data-ai-hint="person" />
+            <AvatarImage src={profile?.photo_url || 'https://placehold.co/40x40.png'} alt="User avatar" data-ai-hint="person" />
             <AvatarFallback>
-              {user?.displayName?.[0].toUpperCase() || user?.email?.[0].toUpperCase()}
+              {profile?.display_name?.[0].toUpperCase() || user?.email?.[0].toUpperCase()}
             </AvatarFallback>
           </Avatar>
         </Button>
@@ -53,7 +54,7 @@ export default function UserNav() {
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">
-              {user?.displayName || "User"}
+              {profile?.display_name || "User"}
             </p>
             <p className="text-xs leading-none text-muted-foreground">
               {user?.email}

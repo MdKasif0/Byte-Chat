@@ -1,8 +1,9 @@
 
 "use server";
 
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { db } from "./firebase/config";
+import { createServerActionClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
+import type { Database } from "./supabase/database.types";
 
 export async function submitFeedback(
     userId: string,
@@ -10,21 +11,22 @@ export async function submitFeedback(
     report: string,
     userAgent: string
 ): Promise<void> {
+  const supabase = createServerActionClient<Database>({ cookies });
+
   if (!report.trim() || rating < 1 || rating > 5) {
     throw new Error("Invalid feedback data provided.");
   }
   
   const feedbackData = {
-      userId,
+      user_id: userId,
       rating,
       report,
-      userAgent,
-      createdAt: serverTimestamp(),
+      user_agent: userAgent,
   };
 
-  try {
-    await addDoc(collection(db, "feedback"), feedbackData);
-  } catch (error) {
+  const { error } = await supabase.from("feedback").insert(feedbackData);
+
+  if (error) {
     console.error("Error submitting feedback:", error);
     throw new Error("Could not submit your feedback. Please try again later.");
   }

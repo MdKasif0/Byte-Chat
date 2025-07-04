@@ -1,119 +1,49 @@
 "use client";
 
-import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { Auth } from "@supabase/auth-ui-react";
+import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
-import { signInWithEmailAndPassword } from "firebase/auth";
-
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { useToast } from "@/hooks/use-toast";
-import { auth } from "@/lib/firebase/config";
+import { useAuth } from "@/context/AuthContext";
+import { useEffect, useState } from "react";
 import { MessagesSquare } from "lucide-react";
 
-const formSchema = z.object({
-  email: z.string().email({ message: "Invalid email address." }),
-  password: z.string().min(6, { message: "Password must be at least 6 characters." }),
-});
-
-type FormValues = z.infer<typeof formSchema>;
-
 export default function LoginPage() {
+  const supabase = createClient();
   const router = useRouter();
-  const { toast } = useToast();
+  const { session } = useAuth();
+  const [redirectUrl, setRedirectUrl] = useState("");
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-    },
-  });
-
-  async function onSubmit(values: FormValues) {
-    try {
-      await signInWithEmailAndPassword(auth, values.email, values.password);
-      router.push("/chat");
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Login Failed",
-        description: "Invalid email or password.",
-      });
+  useEffect(() => {
+    if (session) {
+      router.replace("/chat");
     }
-  }
-
+  }, [session, router]);
+  
+  useEffect(() => {
+    // This ensures window.location.origin is only used on the client side
+    setRedirectUrl(`${window.location.origin}/auth/callback`);
+  }, []);
+  
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-background">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <MessagesSquare className="h-8 w-8" />
-          </div>
-          <CardTitle className="text-2xl font-headline">ByteChat</CardTitle>
-          <CardDescription>
-            Welcome back! Please log in to your account.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input placeholder="name@example.com" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? "Logging in..." : "Log In"}
-              </Button>
-            </form>
-          </Form>
-          <div className="mt-4 text-center text-sm">
-            Don't have an account?{" "}
-            <Link href="/signup" className="underline text-primary">
-              Sign up
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
+       <div className="w-full max-w-sm space-y-4">
+        <div className="mx-auto flex flex-col items-center justify-center gap-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <MessagesSquare className="h-8 w-8" />
+            </div>
+            <h1 className="text-3xl font-headline">ByteChat</h1>
+        </div>
+        {redirectUrl && (
+            <Auth
+                supabaseClient={supabase}
+                appearance={{ theme: ThemeSupa }}
+                theme="dark"
+                providers={[]}
+                redirectTo={redirectUrl}
+            />
+        )}
+       </div>
     </main>
   );
 }

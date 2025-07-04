@@ -8,6 +8,8 @@ export default function ProfileSetupRedirectPage() {
   const router = useRouter();
   
   useEffect(() => {
+    // Profile setup is now handled by the initial ProfileSetupDialog
+    // This page is just a fallback to redirect to the main chat interface
     router.replace("/chat");
   }, [router]);
 

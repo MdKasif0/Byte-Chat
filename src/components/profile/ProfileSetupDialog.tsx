@@ -3,8 +3,6 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { updateProfile } from "firebase/auth";
-import { doc, getDoc, writeBatch, serverTimestamp } from "firebase/firestore";
 import * as React from "react";
 import { ShieldCheck } from "lucide-react";
 
@@ -27,10 +25,13 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { auth, db } from "@/lib/firebase/config";
 import { useAuth } from "@/context/AuthContext";
+import { createClient } from "@/lib/supabase/client";
 
 const formSchema = z.object({
+  display_name: z.string().min(3, {
+    message: "Display name must be at least 3 characters.",
+  }),
   phone: z.string().min(10, {
     message: "Please enter a valid phone number.",
   }).max(20, {
@@ -46,10 +47,12 @@ type ProfileSetupDialogProps = {
 export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupDialogProps) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const supabase = createClient();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      display_name: "",
       phone: "",
     },
   });
@@ -60,51 +63,46 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
       return;
     }
 
-    const phoneNumber = values.phone;
-    const userRef = doc(db, "users", user.uid);
-    const phoneNumberRef = doc(db, "phonenumbers", phoneNumber);
-
     try {
-      const phoneNumberDoc = await getDoc(phoneNumberRef);
-      if (phoneNumberDoc.exists()) {
-        form.setError("phone", { type: "manual", message: "This phone number is already in use." });
-        return;
-      }
+      const { error } = await supabase
+        .from('profiles')
+        .update({ 
+            display_name: values.display_name,
+            phone: values.phone,
+            status: "Hey there! I am using ByteChat.",
+            photo_url: user.user_metadata?.avatar_url || `https://placehold.co/200x200.png?text=${values.display_name.charAt(0).toUpperCase()}`,
+        })
+        .eq('id', user.id);
 
-      const batch = writeBatch(db);
+      if (error) throw error;
       
-      batch.set(userRef, { 
-        uid: user.uid,
-        displayName: phoneNumber, 
-        email: user.email,
-        status: "Hey there! I am using ByteChat.",
-        phone: phoneNumber,
-        links: [],
-        photoURL: user.photoURL || `https://placehold.co/200x200.png?text=${phoneNumber.charAt(0).toUpperCase()}`,
-        isOnline: true,
-        lastSeen: serverTimestamp(),
+      // We also update the user metadata in auth for consistency
+      await supabase.auth.updateUser({
+        data: { 
+            display_name: values.display_name,
+            phone: values.phone
+        }
       });
-      batch.set(phoneNumberRef, { uid: user.uid });
       
-      await batch.commit();
-
-      await updateProfile(user, { 
-        displayName: phoneNumber,
-        photoURL: user.photoURL || `https://placehold.co/200x200.png?text=${phoneNumber.charAt(0).toUpperCase()}`
-      });
-
       toast({
         title: "Welcome!",
         description: "Your profile has been set up.",
       });
       onOpenChange(false);
-    } catch (error) {
+      // Manually trigger a page reload to refresh the auth context with the new profile
+      window.location.reload();
+
+    } catch (error: any) {
       console.error("Error setting up profile: ", error);
-      toast({
-        variant: "destructive",
-        title: "Setup Failed",
-        description: "Could not set up your profile. Please try again.",
-      });
+      if (error.code === '23505') { // Postgres unique violation
+        toast({ variant: "destructive", title: "Setup Failed", description: "This phone number is already in use."});
+      } else {
+        toast({
+            variant: "destructive",
+            title: "Setup Failed",
+            description: "Could not set up your profile. Please try again.",
+        });
+      }
     }
   }
 
@@ -121,11 +119,24 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
             </div>
             <DialogTitle className="text-2xl font-headline">Welcome to ByteChat</DialogTitle>
             <DialogDescription>
-            Let's set up your profile. Please enter your phone number.
+            Let's finish setting up your profile.
             </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 px-4">
+             <FormField
+              control={form.control}
+              name="display_name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Display Name</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Your Name" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="phone"

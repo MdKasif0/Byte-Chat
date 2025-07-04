@@ -84,7 +84,7 @@ export default function FeedbackDialog({ open, onOpenChange }: FeedbackDialogPro
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     if (!user) return;
     try {
-      await submitFeedback(user.uid, values.rating, values.report, navigator.userAgent);
+      await submitFeedback(user.id, values.rating, values.report, navigator.userAgent);
       toast({
         title: "Feedback Submitted!",
         description: "Thank you for helping us improve ByteChat.",
