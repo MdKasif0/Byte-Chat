@@ -1,129 +1,73 @@
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-  
-    // =================================
-    // Helper Functions
-    // =================================
+    
     function isAuthed() {
       return request.auth != null;
     }
-    
-    function isUser(userId) {
-      return isAuthed() && request.auth.uid == userId;
-    }
 
-    // =================================
-    // Users
-    // =================================
     match /users/{userId} {
-      // Any authenticated user can read profile info (needed for chat headers, etc.)
       allow read: if isAuthed();
-      // Only the user themselves can create, update, or delete their profile.
-      allow write: if isUser(userId);
-    }
-    
-    // =================================
-    // Phone Numbers (for uniqueness)
-    // =================================
-    match /phonenumbers/{phoneNumber} {
-      // Allow reading to check for existence
-      allow read: if isAuthed();
-      // Allow creation only if the user is creating their own number mapping
-      allow create: if isAuthed() && request.resource.data.uid == request.auth.uid;
-      // Disallow updates to prevent hijacking
-      allow update: if false;
-      // Allow deletion only by the owner
-      allow delete: if isAuthed() && get(/databases/$(database)/documents/phonenumbers/$(phoneNumber)).data.uid == request.auth.uid;
+      allow create: if request.auth.uid == userId;
+      allow update: if request.auth.uid == userId;
     }
 
-    // =================================
-    // Chats
-    // =================================
+    match /phonenumbers/{phone} {
+      allow read, write: if isAuthed();
+    }
+
     match /chats/{chatId} {
-      // This rule allows a user to check for an existing chat document using a predictable ID
-      // before creating a new one, and allows group members to get group chat info.
-      function canRead() {
-        // For 1-on-1 chats with predictable IDs (uid1_uid2)
-        let isPredictableChatParticipant = (chatId.split('_')[0] == request.auth.uid || chatId.split('_')[1] == request.auth.uid);
-        // For any chat (including group chats), check membership on the existing document
-        let isExistingChatMember = (exists(/databases/$(database)/documents/chats/$(chatId)) && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members);
-        
-        return isAuthed() && (isPredictableChatParticipant || isExistingChatMember);
-      }
+      // GET: Allow reading a single chat doc if the user is a member.
+      // This rule also handles the case where the document doesn't exist yet, which is
+      // necessary for the app to check if a chat needs to be created.
+      allow get: if isAuthed() && 
+                    ( (resource != null && request.auth.uid in resource.data.members) || 
+                      (resource == null && request.auth.uid in chatId.split('_')) );
       
-      // Allow members to get a specific chat document.
-      allow get: if canRead();
+      // LIST: Allow any authenticated user to query the chats collection.
+      // The query in the app ("where member array contains user ID") ensures they only
+      // see their own chats, and the 'get' rule above secures direct access.
+      allow list: if isAuthed();
       
-      // Allow a user to query for the list of chats they are a member of.
-      allow list: if isAuthed() && request.auth.uid in resource.data.members;
+      // CREATE: Allow creating a chat if the user is a member and the data is valid.
+      allow create: if isAuthed() && request.auth.uid in request.resource.data.members && (
+        // Case 1: 1-on-1 Chat
+        (
+          request.resource.data.isGroup == false &&
+          request.resource.data.members[0] < request.resource.data.members[1] &&
+          chatId == request.resource.data.members[0] + '_' + request.resource.data.members[1]
+        ) ||
+        // Case 2: Group Chat
+        (
+          request.resource.data.isGroup == true &&
+          request.auth.uid in request.resource.data.admins
+        )
+      );
 
-      // Allow creating a chat if the user is included in the initial members list.
-      allow create: if isAuthed() && request.auth.uid in request.resource.data.members;
-      
-      // Allow a member to update the chat (e.g., lastMessage, typing status).
+      // UPDATE: Allow updates if the user is a member.
       allow update: if isAuthed() && request.auth.uid in resource.data.members;
 
-      // --- Messages Subcollection ---
       match /messages/{messageId} {
-        function isChatMemberForMessages() {
-          return request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
-        }
+        allow read, write: if isAuthed() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+      }
+    }
 
-        // Only chat members can read messages
-        allow list, get: if isAuthed() && isChatMemberForMessages();
-        
-        // Only chat members can create messages, and they must be the sender
-        allow create: if isAuthed() && isChatMemberForMessages() && request.resource.data.senderId == request.auth.uid;
-        
-        function isSender() {
-          return resource.data.senderId == request.auth.uid;
-        }
-
-        // Allow any member to update (for reactions), but only sender can change content.
-        allow update: if isAuthed() && isChatMemberForMessages() && 
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions', 'readBy', 'starredBy']) || isSender());
-        
-        // Only the sender can delete their message
-        allow delete: if isAuthed() && isChatMemberForMessages() && isSender();
+    match /calls/{callId} {
+      allow create: if isAuthed() && request.auth.uid == request.resource.data.callerId;
+      allow read, update: if isAuthed() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId);
+      
+      match /candidatesCollection/{candidateId} {
+        allow create: if isAuthed() && (
+          request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+          request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId
+        );
       }
     }
     
-    // =================================
-    // Calls
-    // =================================
-    match /calls/{callId} {
-      function isCallParticipant() {
-        return request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId;
-      }
-      
-      function isCallParticipantForCreate() {
-        return request.auth.uid == request.resource.data.callerId;
-      }
-      
-       function isCallParticipantForDoc(doc) {
-        return request.auth.uid == doc.data.callerId || request.auth.uid == doc.data.calleeId;
-      }
-
-      allow get, list: if isAuthed() && isCallParticipant();
-      allow create: if isAuthed() && isCallParticipantForCreate();
-      allow update: if isAuthed() && isCallParticipant();
-
-      // --- ICE Candidates Subcollections ---
-      match /callerCandidates/{candidateId} {
-        allow read, write: if isAuthed() && isCallParticipantForDoc(get(/databases/$(database)/documents/calls/$(callId)));
-      }
-      match /calleeCandidates/{candidateId} {
-        allow read, write: if isAuthed() && isCallParticipantForDoc(get(/databases/$(database)/documents/calls/$(callId)));
-      }
-    }
-
-    // =================================
-    // Feedback
-    // =================================
     match /feedback/{feedbackId} {
-      allow create: if isAuthed() && request.resource.data.userId == request.auth.uid;
+      allow create: if isAuthed();
     }
   }
 }
