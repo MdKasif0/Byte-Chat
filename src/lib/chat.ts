@@ -1,3 +1,4 @@
+
 "use server";
 
 import {
@@ -25,7 +26,7 @@ export async function createChat(
   currentUserId: string,
   otherUserId: string
 ): Promise<string> {
-  // Create a predictable, unique chat ID for the two users
+  // Create a predictable, unique chat ID for the two users by sorting their UIDs
   const members = [currentUserId, otherUserId].sort();
   const chatId = members.join('_');
   
@@ -38,6 +39,7 @@ export async function createChat(
   }
   
   // If chat doesn't exist, create it.
+  // Fetch the profiles for the members to store them in the chat document.
   const userDocs = await getDocs(query(collection(db, 'users'), where(documentId(), 'in', members)));
   const memberProfiles = userDocs.docs.map(d => {
       const user = d.data() as UserProfile;
@@ -49,13 +51,14 @@ export async function createChat(
       }
   });
 
-  // Create a new chat with the specific ID
+  // Create a new chat document using the predictable ID
   await setDoc(chatRef, {
     members: members,
     memberProfiles,
     typing: [],
     createdAt: serverTimestamp(),
     isGroup: false,
+    mutedBy: [],
   });
 
   return chatId;
@@ -117,6 +120,8 @@ export async function createMessage(
     content,
     timestamp: serverTimestamp() as any, // Cast because serverTimestamp is a sentinel value
     readBy: [senderId],
+    reactions: {},
+    starredBy: [],
     ...(replyTo && { replyTo: replyToData }),
     ...(fileInfo && { 
         fileURL: fileInfo.url, 
@@ -191,8 +196,6 @@ export async function updateMessage(chatId: string, messageId: string, newConten
 
 export async function deleteMessage(chatId: string, messageId: string) {
     const messageRef = doc(db, `chats/${chatId}/messages`, messageId);
-    // Instead of updating, we'll make this a hard delete for simplicity,
-    // though a soft delete (updating content) is also a valid strategy.
     await deleteDoc(messageRef);
 }
 
