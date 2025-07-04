@@ -1,3 +1,4 @@
+
 "use client";
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
@@ -29,6 +30,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const getInitialSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+
+      if (currentUser) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', currentUser.id)
+          .single();
+        setProfile(profileData as Profile | null);
+      }
+      setLoading(false);
+    };
+    
+    getInitialSession();
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         setSession(session);
@@ -52,11 +72,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         } else {
           setProfile(null);
         }
-        setLoading(false);
+        // No longer setting loading here as it's for initial load only
       }
     );
 
     const handleBeforeUnload = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
         if (user) {
             await supabase.from('profiles').update({ 
                 is_online: false,
@@ -70,14 +91,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => {
         subscription.unsubscribe();
         window.removeEventListener('beforeunload', handleBeforeUnload);
-        if (user) {
-             supabase.from('profiles').update({ 
-                is_online: false,
-                last_seen: new Date().toISOString()
-            }).eq('id', user.id);
-        }
     };
-  }, [supabase, user]);
+  }, [supabase]);
 
   return (
     <AuthContext.Provider value={{ user, profile, session, loading }}>
