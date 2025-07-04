@@ -1,17 +1,16 @@
+
 "use client";
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { collection, query, where, orderBy } from "firebase/firestore";
 import { Search, Check, Users, File, Video, Image as ImageIcon, Mic, MessagesSquare, Loader2 } from "lucide-react";
 import { format } from "date-fns";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import debounce from "lodash.debounce";
+import { createClient } from "@/lib/supabase/client";
 
 import { useAuth } from "@/context/AuthContext";
-import { db } from "@/lib/firebase/config";
 import type { Chat, UserProfile, Message } from "@/lib/types";
-import { useCollection } from "@/hooks/use-collection";
 import { useToast } from "@/hooks/use-toast";
 import { createChat } from "@/lib/chat";
 
@@ -24,23 +23,65 @@ export default function ChatPage() {
     const { user } = useAuth();
     const router = useRouter();
     const { toast } = useToast();
+    const supabase = createClient();
     const [searchTerm, setSearchTerm] = useState("");
+    
+    const [chats, setChats] = useState<Chat[]>([]);
+    const [users, setUsers] = useState<UserProfile[]>([]);
+    const [chatsLoading, setChatsLoading] = useState(true);
+    const [usersLoading, setUsersLoading] = useState(true);
 
-    const chatsQuery = user ? query(
-        collection(db, "chats"), 
-        where("members", "array-contains", user.uid),
-        orderBy("lastMessage.timestamp", "desc")
-    ) : null;
-    
-    const { data: chats, loading: chatsLoading } = useCollection<Chat>(chatsQuery);
+    useEffect(() => {
+        if (!user) return;
+        
+        const fetchChats = async () => {
+            setChatsLoading(true);
+            const { data, error } = await supabase
+                .from('chats')
+                .select('*')
+                .contains('members', [user.id])
+                .order('last_message->>created_at', { ascending: false, nullsFirst: false });
+            
+            if (data) setChats(data as Chat[]);
+            if (error) console.error("Error fetching chats", error);
+            setChatsLoading(false);
+        };
+        fetchChats();
 
-    const usersQuery = user ? query(
-        collection(db, "users"),
-        where("uid", "!=", user.uid)
-    ) : null;
-    
-    const { data: users, loading: usersLoading } = useCollection<UserProfile>(usersQuery);
-    
+        const chatChannel = supabase.channel('public:chats-page')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'chats', filter: `members.cs.{"${user.id}"}` }, fetchChats)
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(chatChannel);
+        };
+    }, [user, supabase]);
+
+    useEffect(() => {
+        if (!user) return;
+
+        const fetchUsers = async () => {
+            setUsersLoading(true);
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .neq('id', user.id);
+            
+            if (data) setUsers(data as UserProfile[]);
+            if (error) console.error("Error fetching users", error);
+            setUsersLoading(false);
+        };
+        fetchUsers();
+
+        const usersChannel = supabase.channel('public:profiles')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchUsers)
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(usersChannel);
+        };
+    }, [user, supabase]);
+
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setSearchTerm(e.target.value);
     };
@@ -51,7 +92,7 @@ export default function ChatPage() {
         if (!users) return [];
         if (!searchTerm) return users;
         return users.filter(u =>
-            u.displayName.toLowerCase().includes(searchTerm.toLowerCase())
+            u.display_name.toLowerCase().includes(searchTerm.toLowerCase())
         );
     }, [users, searchTerm]);
 
@@ -59,11 +100,11 @@ export default function ChatPage() {
         if (!chats) return [];
         if (!searchTerm) return chats;
         return chats.filter(chat => {
-            if (chat.isGroup) {
-                return chat.groupName?.toLowerCase().includes(searchTerm.toLowerCase());
+            if (chat.is_group) {
+                return chat.group_name?.toLowerCase().includes(searchTerm.toLowerCase());
             }
-            const otherMember = chat.memberProfiles.find(member => member.uid !== user!.uid);
-            return otherMember?.displayName.toLowerCase().includes(searchTerm.toLowerCase());
+            const otherMember = chat.member_profiles.find(member => member.id !== user!.id);
+            return otherMember?.display_name.toLowerCase().includes(searchTerm.toLowerCase());
         });
     }, [chats, searchTerm, user]);
 
@@ -74,7 +115,7 @@ export default function ChatPage() {
         }
     
         try {
-          const chatId = await createChat(user.uid, targetUserId);
+          const chatId = await createChat(user.id, targetUserId);
           router.push(`/chat/${chatId}`);
         } catch (error) {
           console.error("Error creating chat:", error);
@@ -113,15 +154,15 @@ export default function ChatPage() {
                     <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
                         {users && users.length > 0 ? (
                             users.map((u: UserProfile) => (
-                                <button key={u.uid} onClick={() => handleStartChat(u.uid)} className="flex flex-col items-center gap-2 shrink-0 text-center w-20">
+                                <button key={u.id} onClick={() => handleStartChat(u.id)} className="flex flex-col items-center gap-2 shrink-0 text-center w-20">
                                     <div className="relative">
                                         <Avatar className="h-16 w-16">
-                                            <AvatarImage src={u.photoURL} alt={u.displayName} />
-                                            <AvatarFallback>{u.displayName?.[0]?.toUpperCase()}</AvatarFallback>
+                                            <AvatarImage src={u.photo_url} alt={u.display_name} />
+                                            <AvatarFallback>{u.display_name?.[0]?.toUpperCase()}</AvatarFallback>
                                         </Avatar>
-                                        {u.isOnline && <div className="absolute bottom-0 right-0 h-4 w-4 rounded-full bg-green-500 border-2 border-background" />}
+                                        {u.is_online && <div className="absolute bottom-0 right-0 h-4 w-4 rounded-full bg-green-500 border-2 border-background" />}
                                     </div>
-                                    <span className="text-sm font-medium truncate w-full">{u.displayName}</span>
+                                    <span className="text-sm font-medium truncate w-full">{u.display_name}</span>
                                 </button>
                             ))
                         ) : (
@@ -139,7 +180,7 @@ export default function ChatPage() {
                 <div className="space-y-1">
                     {filteredChats.length > 0 ? (
                         filteredChats.map((chat) => (
-                            <ChatItem key={chat.id} chat={chat} currentUserId={user!.uid} />
+                            <ChatItem key={chat.id} chat={chat} currentUserId={user!.id} />
                         ))
                     ) : (
                         <div className="text-center py-16 bg-muted/50 rounded-2xl">
@@ -183,18 +224,18 @@ function ChatSkeleton() {
 function LastMessagePreview({ lastMessage, currentUserId }: { lastMessage: Message, currentUserId: string }) {
     if (!lastMessage) return <p className="text-sm text-muted-foreground truncate">No messages yet.</p>;
 
-    const wasSentByMe = lastMessage.senderId === currentUserId;
+    const wasSentByMe = lastMessage.sender_id === currentUserId;
     let preview: React.ReactNode;
 
-    if (lastMessage.fileURL) {
-        if (lastMessage.fileType?.startsWith('image/')) {
+    if (lastMessage.file_url) {
+        if (lastMessage.file_type?.startsWith('image/')) {
             preview = <><ImageIcon className="h-4 w-4 mr-1" />Photo</>;
-        } else if (lastMessage.fileType?.startsWith('video/')) {
+        } else if (lastMessage.file_type?.startsWith('video/')) {
             preview = <><Video className="h-4 w-4 mr-1" />Video</>;
-        } else if (lastMessage.fileType?.startsWith('audio/')) {
+        } else if (lastMessage.file_type?.startsWith('audio/')) {
             preview = <><Mic className="h-4 w-4 mr-1" />Voice message</>;
         } else {
-            preview = <><File className="h-4 w-4 mr-1" />{lastMessage.fileName || 'File'}</>;
+            preview = <><File className="h-4 w-4 mr-1" />{lastMessage.file_name || 'File'}</>;
         }
     } else {
         preview = lastMessage.content || "No messages yet.";
@@ -209,24 +250,24 @@ function LastMessagePreview({ lastMessage, currentUserId }: { lastMessage: Messa
 }
 
 function ChatItem({ chat, currentUserId }: { chat: Chat, currentUserId: string }) {
-    const isGroup = chat.isGroup;
-    const otherMember = !isGroup ? chat.memberProfiles.find(member => member.uid !== currentUserId) : null;
+    const isGroup = chat.is_group;
+    const otherMember = !isGroup ? chat.member_profiles.find(member => member.id !== currentUserId) : null;
 
     if (!isGroup && !otherMember) return null;
     
     // For design purposes, mock unread count for one user
-    const unreadCount = otherMember?.displayName === "Matthew Lucas" ? 3 : 0;
+    const unreadCount = 0;
 
-    const displayName = isGroup ? chat.groupName : otherMember?.displayName;
-    const photoURL = isGroup ? chat.groupAvatarURL : otherMember?.photoURL;
-    const isOnline = !isGroup && otherMember?.isOnline;
+    const displayName = isGroup ? chat.group_name : otherMember?.display_name;
+    const photoURL = isGroup ? chat.group_avatar_url : otherMember?.photo_url;
+    const isOnline = !isGroup && otherMember?.is_online;
 
     return (
         <Link href={`/chat/${chat.id}`} className="block">
             <div className="flex items-center gap-4 p-3 rounded-2xl hover:bg-muted transition-colors">
                 <div className="relative shrink-0">
                     <Avatar className="h-14 w-14">
-                        <AvatarImage src={photoURL} alt={displayName} />
+                        <AvatarImage src={photoURL || undefined} alt={displayName || ''} />
                         <AvatarFallback>
                             {isGroup ? <Users className="h-6 w-6"/> : displayName?.charAt(0)}
                         </AvatarFallback>
@@ -236,14 +277,14 @@ function ChatItem({ chat, currentUserId }: { chat: Chat, currentUserId: string }
                 <div className="flex-grow overflow-hidden">
                     <div className="flex justify-between items-start">
                         <h4 className="font-semibold truncate">{displayName}</h4>
-                        {chat.lastMessage?.timestamp && (
+                        {chat.last_message?.created_at && (
                              <p className="text-xs text-muted-foreground shrink-0">
-                                {format(chat.lastMessage.timestamp.toDate(), 'p')}
+                                {format(new Date(chat.last_message.created_at), 'p')}
                             </p>
                         )}
                     </div>
                     <div className="flex justify-between items-start mt-1">
-                       {chat.lastMessage ? <LastMessagePreview lastMessage={chat.lastMessage} currentUserId={currentUserId} /> : <p className="text-sm text-muted-foreground truncate">No messages yet.</p>}
+                       {chat.last_message ? <LastMessagePreview lastMessage={chat.last_message} currentUserId={currentUserId} /> : <p className="text-sm text-muted-foreground truncate">No messages yet.</p>}
                         {unreadCount > 0 && (
                             <span className="flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-primary text-primary-foreground text-xs font-bold">
                                 {unreadCount}

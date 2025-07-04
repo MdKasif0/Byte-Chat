@@ -1,15 +1,16 @@
+
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 import { useAuth } from "@/context/AuthContext";
 import { findUserByPhoneNumber, createChat, createGroupChat } from "@/lib/chat";
 import type { UserProfile } from "@/lib/types";
-import { useCollection } from "@/hooks/use-collection";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -53,13 +54,30 @@ export default function NewChatDialog({ open, onOpenChange }: NewChatDialogProps
   const { user: currentUser } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const supabase = createClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { data: users, loading: usersLoading } = useCollection<UserProfile>(
-    currentUser ? "users" : null
-  );
-  
-  const otherUsers = users?.filter(u => u.uid !== currentUser?.uid);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const fetchUsers = async () => {
+        setUsersLoading(true);
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .neq('id', currentUser.id);
+        if (error) {
+            console.error("Error fetching users for new chat dialog", error);
+        } else {
+            setUsers(data as UserProfile[]);
+        }
+        setUsersLoading(false);
+    }
+    fetchUsers();
+  }, [currentUser, supabase]);
   
   const dmForm = useForm<z.infer<typeof directMessageSchema>>({
     resolver: zodResolver(directMessageSchema),
@@ -75,7 +93,7 @@ export default function NewChatDialog({ open, onOpenChange }: NewChatDialogProps
     if (!currentUser) return;
     setIsSubmitting(true);
 
-    if (values.phone === currentUser.displayName) {
+    if (values.phone === currentUser.email) {
         dmForm.setError("phone", { message: "You can't start a chat with yourself." });
         setIsSubmitting(false);
         return;
@@ -87,7 +105,7 @@ export default function NewChatDialog({ open, onOpenChange }: NewChatDialogProps
         dmForm.setError("phone", { message: "User not found." });
         return;
       }
-      const chatId = await createChat(currentUser.uid, targetUser.uid);
+      const chatId = await createChat(currentUser.id, targetUser.id);
       
       onOpenChange(false);
       dmForm.reset();
@@ -106,7 +124,7 @@ export default function NewChatDialog({ open, onOpenChange }: NewChatDialogProps
     setIsSubmitting(true);
     
     try {
-        const chatId = await createGroupChat(currentUser.uid, values.members, values.groupName);
+        const chatId = await createGroupChat(currentUser.id, values.members, values.groupName);
         onOpenChange(false);
         groupForm.reset();
         router.push(`/chat/${chatId}`);
@@ -178,31 +196,31 @@ export default function NewChatDialog({ open, onOpenChange }: NewChatDialogProps
                                      <FormLabel>Select Members</FormLabel>
                                      <ScrollArea className="h-48 w-full rounded-md border p-2">
                                         {usersLoading ? <p>Loading users...</p> 
-                                        : otherUsers && otherUsers.length > 0 ? (
+                                        : users && users.length > 0 ? (
                                             <div className="space-y-2">
-                                            {otherUsers.map(user => (
+                                            {users.map(user => (
                                                 <FormField
-                                                    key={user.uid}
+                                                    key={user.id}
                                                     control={groupForm.control}
                                                     name="members"
                                                     render={({ field }) => (
                                                         <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md p-2 hover:bg-muted transition-colors">
                                                             <FormControl>
                                                                 <Checkbox
-                                                                     checked={field.value?.includes(user.uid)}
+                                                                     checked={field.value?.includes(user.id)}
                                                                      onCheckedChange={(checked) => {
                                                                         return checked
-                                                                        ? field.onChange([...field.value, user.uid])
-                                                                        : field.onChange(field.value?.filter((value) => value !== user.uid))
+                                                                        ? field.onChange([...field.value, user.id])
+                                                                        : field.onChange(field.value?.filter((value) => value !== user.id))
                                                                     }}
                                                                 />
                                                             </FormControl>
                                                             <Avatar className="h-8 w-8">
-                                                                <AvatarImage src={user.photoURL} />
-                                                                <AvatarFallback>{user.displayName?.[0]}</AvatarFallback>
+                                                                <AvatarImage src={user.photo_url} />
+                                                                <AvatarFallback>{user.display_name?.[0]}</AvatarFallback>
                                                             </Avatar>
                                                             <Label className="font-normal w-full" onClick={(e) => e.preventDefault()}>
-                                                                {user.displayName}
+                                                                {user.display_name}
                                                             </Label>
                                                         </FormItem>
                                                     )}

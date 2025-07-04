@@ -3,13 +3,13 @@
 
 import 'webrtc-adapter';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { collection, query, where, onSnapshot, orderBy, limit, doc, Unsubscribe } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase/config';
+import { createClient } from '@/lib/supabase/client';
 import type { Call, CallType, UserProfile, Chat, IceCandidateData } from '@/lib/types';
 import { createCall, updateCallStatus, updateCallWithAnswer, addIceCandidate } from '@/lib/chat';
 import IncomingCallToast from './IncomingCallToast';
 import CallView from './CallView';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 const PEER_CONNECTION_CONFIG: RTCConfiguration = {
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
@@ -24,6 +24,7 @@ type CallContainerProps = {
 
 export default function CallContainer({ user, chat, callRequest, onCallEnded }: CallContainerProps) {
     const { toast } = useToast();
+    const supabase = createClient();
     const [activeCall, setActiveCall] = useState<Call | null>(null);
     const [incomingCall, setIncomingCall] = useState<Call | null>(null);
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -32,6 +33,8 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
 
     const pcRef = useRef<RTCPeerConnection | null>(null);
     const callTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const callChannelRef = useRef<RealtimeChannel | null>(null);
+    const iceCandidateChannelRef = useRef<RealtimeChannel | null>(null);
 
     // Effect to handle outgoing call requests from ChatWindow
     useEffect(() => {
@@ -41,38 +44,36 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
         }
     }, [callRequest, onCallEnded]);
 
-    // Firestore listener for incoming calls
+    // Supabase listener for incoming calls
     useEffect(() => {
-        const q = query(
-            collection(db, 'calls'),
-            where('calleeId', '==', user.uid),
-            where('status', '==', 'ringing'),
-            orderBy('createdAt', 'desc'),
-            limit(1)
-        );
-
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            if (!snapshot.empty) {
-                const callDoc = snapshot.docs[0];
-                const callData = { id: callDoc.id, ...callDoc.data() } as Call;
-                // Prevent showing incoming call if already in one
-                if (!activeCall) {
-                    setIncomingCall(callData);
+        const channel = supabase.channel(`incoming-calls-for-${user.id}`)
+            .on<Call>('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'calls',
+                filter: `callee_id=eq.${user.id}`
+            }, (payload) => {
+                const newCall = payload.new;
+                if (newCall.status === 'ringing' && !activeCall) {
+                    setIncomingCall(newCall);
                 }
-            } else {
-                setIncomingCall(null);
-            }
-        });
+            })
+            .subscribe();
 
-        return () => unsubscribe();
-    }, [user.uid, activeCall]);
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [user.id, activeCall, supabase]);
 
     const initializePeerConnection = useCallback(() => {
+        if (pcRef.current) {
+            pcRef.current.close();
+        }
         const pc = new RTCPeerConnection(PEER_CONNECTION_CONFIG);
 
         pc.onicecandidate = (event) => {
             if (event.candidate && activeCall) {
-                const role = activeCall.callerId === user.uid ? 'callerCandidates' : 'calleeCandidates';
+                const role = activeCall.caller_id === user.id ? 'caller' : 'callee';
                 addIceCandidate(activeCall.id, role, event.candidate);
             }
         };
@@ -83,26 +84,33 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
                 setRemoteStream(stream);
             }
         };
-
+        
         pc.onconnectionstatechange = () => {
-            if (pc.connectionState === 'failed') {
-                console.log('WebRTC connection failed, attempting to restart ICE...');
-                pc.restartIce();
+             if (pcRef.current) {
+                console.log(`WebRTC Connection State: ${pcRef.current.connectionState}`);
+                if (pcRef.current.connectionState === 'failed') {
+                    pcRef.current.restartIce();
+                } else if (pcRef.current.connectionState === 'disconnected') {
+                    handleEndCall(false);
+                }
             }
         };
 
         pcRef.current = pc;
         return pc;
-    }, [activeCall, user.uid]);
+    }, [activeCall, user.id]);
 
     const setupStream = useCallback(async (type: CallType) => {
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+        }
         const stream = await navigator.mediaDevices.getUserMedia({
             video: type === 'video',
             audio: true,
         });
         setLocalStream(stream);
         return stream;
-    }, []);
+    }, [localStream]);
 
     const handleStartCall = async (type: CallType, calleeId: string) => {
         if (!chat) return;
@@ -115,40 +123,38 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
         await pc.setLocalDescription(offer);
 
         const callId = await createCall(chat.id, user, calleeId, type, offer);
-        setActiveCall({ id: callId, status: 'ringing', type } as Call); // Partial call object for UI
+        setActiveCall({ id: callId, status: 'ringing', type, caller_id: user.id, callee_id: calleeId } as Call);
 
         // Listen for answer and ICE candidates
-        const unsubCall = onSnapshot(doc(db, 'calls', callId), async (docSnap) => {
-            const callData = docSnap.data() as Call;
-            if (callData?.answer && pc.signalingState !== 'stable') {
-                await pc.setRemoteDescription(new RTCSessionDescription(callData.answer));
-            }
-            if (callData?.status && !['ringing', 'connected'].includes(callData.status) ) {
-                handleEndCall(false); // Don't update status again if remote ended
-            }
-            if(callData?.status === 'connected') {
-                setActiveCall(prev => prev ? {...prev, status: 'connected'} : null);
-            }
-        });
+        callChannelRef.current = supabase.channel(`call-${callId}`)
+            .on<Call>('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${callId}`}, async (payload) => {
+                const callData = payload.new;
+                if (callData?.answer && pc.signalingState !== 'stable') {
+                    await pc.setRemoteDescription(new RTCSessionDescription(callData.answer as RTCSessionDescriptionInit));
+                }
+                if (callData?.status && !['ringing', 'connected'].includes(callData.status) ) {
+                    handleEndCall(false);
+                }
+                if(callData?.status === 'connected') {
+                    setActiveCall(prev => prev ? {...prev, status: 'connected'} : null);
+                }
+            })
+            .subscribe();
 
-        const unsubCandidates = onSnapshot(collection(db, 'calls', callId, 'calleeCandidates'), (snapshot) => {
-            snapshot.docChanges().forEach(change => {
-                if (change.type === 'added') pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-            });
-        });
+        iceCandidateChannelRef.current = supabase.channel(`ice-${callId}-callee`)
+            .on<IceCandidateData>('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ice_candidates', filter: `call_id=eq.${callId}`}, (payload) => {
+                 if (payload.new.sender !== user.id) {
+                    pc.addIceCandidate(new RTCIceCandidate(payload.new.candidate as RTCIceCandidateInit));
+                 }
+            })
+            .subscribe();
 
-        // Set a timeout for the call
         callTimeoutRef.current = setTimeout(() => {
             if (activeCall?.status === 'ringing') {
                 updateCallStatus(callId, 'unanswered');
                 handleEndCall(false);
             }
         }, 30000); // 30 seconds
-
-        return () => {
-            unsubCall();
-            unsubCandidates();
-        };
     };
 
     const handleAnswerCall = async () => {
@@ -161,20 +167,20 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
         const stream = await setupStream(incomingCall.type);
         stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-        await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer!));
+        await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer as RTCSessionDescriptionInit));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
         await updateCallWithAnswer(callId, answer);
 
         // Listen for ICE candidates from the caller
-        onSnapshot(collection(db, 'calls', callId, 'callerCandidates'), (snapshot) => {
-            snapshot.docChanges().forEach(change => {
-                if (change.type === 'added') {
-                    pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-                }
-            });
-        });
+        iceCandidateChannelRef.current = supabase.channel(`ice-${callId}-caller`)
+            .on<IceCandidateData>('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ice_candidates', filter: `call_id=eq.${callId}`}, (payload) => {
+                 if (payload.new.sender !== user.id) {
+                    pc.addIceCandidate(new RTCIceCandidate(payload.new.candidate as RTCIceCandidateInit));
+                 }
+            })
+            .subscribe();
     };
 
     const handleRejectCall = async () => {
@@ -192,6 +198,9 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
             updateCallStatus(activeCall.id, 'ended', callDuration);
         }
 
+        if (callChannelRef.current) supabase.removeChannel(callChannelRef.current);
+        if (iceCandidateChannelRef.current) supabase.removeChannel(iceCandidateChannelRef.current);
+
         pcRef.current?.close();
         pcRef.current = null;
         
@@ -200,7 +209,7 @@ export default function CallContainer({ user, chat, callRequest, onCallEnded }: 
         setRemoteStream(null);
         setActiveCall(null);
         setCallDuration(0);
-    }, [activeCall, localStream, callDuration]);
+    }, [activeCall, localStream, callDuration, supabase]);
 
     return (
         <>

@@ -1,15 +1,14 @@
+
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
 import { PlusCircle, Search } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 import { useAuth } from "@/context/AuthContext";
-import { db } from "@/lib/firebase/config";
 import type { Chat } from "@/lib/types";
-import { useCollection } from "@/hooks/use-collection";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -30,18 +29,39 @@ import { formatDistanceToNowStrict } from "date-fns";
 export default function ChatList() {
     const { user } = useAuth();
     const pathname = usePathname();
+    const supabase = createClient();
     const [isNewChatDialogOpen, setNewChatDialogOpen] = useState(false);
+    const [chats, setChats] = useState<Chat[]>([]);
+    const [loading, setLoading] = useState(true);
 
-    const chatsQuery = user ? query(
-        collection(db, "chats"), 
-        where("members", "array-contains", user.uid),
-        orderBy("lastMessage.timestamp", "desc")
-    ) : null;
-    
-    const { data: chats, loading } = useCollection<Chat>(chatsQuery);
+    useEffect(() => {
+        if (!user) return;
+
+        const fetchChats = async () => {
+            setLoading(true);
+            const { data, error } = await supabase
+                .from('chats')
+                .select('*')
+                .contains('members', [user.id])
+                .order('last_message->>created_at', { ascending: false, nullsFirst: false });
+            
+            if (data) setChats(data as Chat[]);
+            if (error) console.error("Error fetching chats for list:", error);
+            setLoading(false);
+        };
+        fetchChats();
+
+        const channel = supabase.channel('public:chats-list')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'chats', filter: `members.cs.{"${user.id}"}` }, fetchChats)
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [user, supabase]);
 
     const getOtherMember = (chat: Chat) => {
-        return chat.memberProfiles.find(member => member.uid !== user?.uid);
+        return chat.member_profiles.find(member => member.id !== user?.id);
     }
     
   return (
@@ -72,22 +92,22 @@ export default function ChatList() {
                             <Link href={`/chat/${chat.id}`}>
                                 <div className="relative">
                                     <Avatar className="h-10 w-10">
-                                        <AvatarImage src={otherMember.photoURL} alt={otherMember.displayName} data-ai-hint="person" />
-                                        <AvatarFallback>{otherMember.displayName.charAt(0)}</AvatarFallback>
+                                        <AvatarImage src={otherMember.photo_url} alt={otherMember.display_name} data-ai-hint="person" />
+                                        <AvatarFallback>{otherMember.display_name.charAt(0)}</AvatarFallback>
                                     </Avatar>
-                                    {otherMember.isOnline && <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-background" />}
+                                    {otherMember.is_online && <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-background" />}
                                 </div>
                                 <div className="flex-grow text-left overflow-hidden">
                                     <div className="flex justify-between items-center">
-                                    <span className="font-semibold truncate">{otherMember.displayName}</span>
-                                    {chat.lastMessage?.timestamp && (
+                                    <span className="font-semibold truncate">{otherMember.display_name}</span>
+                                    {chat.last_message?.created_at && (
                                         <span className="text-xs text-muted-foreground shrink-0">
-                                            {formatDistanceToNowStrict(chat.lastMessage.timestamp.toDate())}
+                                            {formatDistanceToNowStrict(new Date(chat.last_message.created_at))}
                                         </span>
                                     )}
                                     </div>
                                     <p className="text-sm text-muted-foreground truncate">
-                                        {chat.lastMessage?.content || "No messages yet"}
+                                        {chat.last_message?.content || "No messages yet"}
                                     </p>
                                 </div>
                             </Link>

@@ -1,14 +1,14 @@
+
 "use client";
 
 import { useRouter } from "next/navigation";
-import { collection, query, where, orderBy, or } from "firebase/firestore";
 import { Phone, Video, PhoneMissed, ArrowUpRight, ArrowDownLeft } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { createClient } from "@/lib/supabase/client";
+import { useState, useEffect } from 'react';
 
 import { useAuth } from "@/context/AuthContext";
-import { db } from "@/lib/firebase/config";
 import type { Call } from "@/lib/types";
-import { useCollection } from "@/hooks/use-collection";
 import { createChat } from "@/lib/chat";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -19,14 +19,41 @@ import { cn } from "@/lib/utils";
 
 export default function CallsPage() {
     const { user } = useAuth();
-    
-    const callsQuery = user ? query(
-        collection(db, "calls"), 
-        or(where("callerId", "==", user.uid), where("calleeId", "==", user.uid)),
-        orderBy("createdAt", "desc")
-    ) : null;
-    
-    const { data: calls, loading } = useCollection<Call>(callsQuery);
+    const supabase = createClient();
+    const [calls, setCalls] = useState<Call[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (!user) return;
+
+        const fetchCalls = async () => {
+            setLoading(true);
+            const { data, error } = await supabase
+                .from('calls')
+                .select('*')
+                .or(`caller_id.eq.${user.id},callee_id.eq.${user.id}`)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error("Error fetching calls:", error);
+            } else {
+                setCalls(data as Call[]);
+            }
+            setLoading(false);
+        };
+
+        fetchCalls();
+
+        const channel = supabase.channel('public:calls')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, (payload) => {
+                fetchCalls();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [user, supabase]);
 
     return (
         <div className="h-full flex flex-col bg-background">
@@ -45,7 +72,7 @@ export default function CallsPage() {
                 ) : calls && calls.length > 0 ? (
                     <div className="space-y-1 p-2">
                         {calls.map(call => (
-                            <CallLogItem key={call.id} call={call} currentUserId={user!.uid} />
+                            <CallLogItem key={call.id} call={call} currentUserId={user!.id} />
                         ))}
                     </div>
                 ) : (
@@ -64,12 +91,12 @@ export default function CallsPage() {
 function CallLogItem({ call, currentUserId }: { call: Call; currentUserId: string }) {
     const router = useRouter();
     const { toast } = useToast();
-    const isOutgoing = call.callerId === currentUserId;
+    const isOutgoing = call.caller_id === currentUserId;
     
     const otherUser = {
-        id: isOutgoing ? call.calleeId : call.callerId,
-        name: isOutgoing ? call.calleeName : call.callerName,
-        photoURL: isOutgoing ? call.calleePhotoURL : call.callerPhotoURL,
+        id: isOutgoing ? call.callee_id : call.caller_id,
+        name: isOutgoing ? call.callee_name : call.caller_name,
+        photoURL: isOutgoing ? call.callee_photo_url : call.caller_photo_url,
     };
 
     if (!otherUser.name) {
@@ -113,7 +140,7 @@ function CallLogItem({ call, currentUserId }: { call: Call; currentUserId: strin
     return (
         <div className="flex items-center gap-4 p-3 rounded-2xl hover:bg-muted transition-colors">
             <Avatar className="h-12 w-12">
-                <AvatarImage src={otherUser.photoURL} alt={otherUser.name} />
+                <AvatarImage src={otherUser.photoURL || undefined} alt={otherUser.name || ""} />
                 <AvatarFallback>{otherUser.name?.[0]?.toUpperCase()}</AvatarFallback>
             </Avatar>
             <div className="flex-grow overflow-hidden">
@@ -123,7 +150,7 @@ function CallLogItem({ call, currentUserId }: { call: Call; currentUserId: strin
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     {getStatusIcon()}
                     <span>
-                        {call.createdAt ? formatDistanceToNow(call.createdAt.toDate(), { addSuffix: true }) : '...'}
+                        {call.created_at ? formatDistanceToNow(new Date(call.created_at), { addSuffix: true }) : '...'}
                     </span>
                 </div>
             </div>
