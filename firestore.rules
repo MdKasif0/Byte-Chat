@@ -1,117 +1,102 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper Functions
+    // Helper function to check if a user is authenticated.
     function isAuthed() {
       return request.auth != null;
     }
 
-    function uid() {
-      return request.auth.uid;
-    }
-
-    function isOwner(userId) {
-      return isAuthed() && uid() == userId;
-    }
-
-    function incomingData() {
-      return request.resource.data;
-    }
-
-    function isChatMember(chatId) {
-      return isAuthed() && get(/databases/$(database)/documents/chats/$(chatId)).data.members.hasAny([uid()]);
-    }
-
-    // Collections
+    // ========= USERS, PROFILES, & FEEDBACK =========
     match /users/{userId} {
-      allow get, list: if isAuthed();
-      allow create: if isOwner(userId)
-                    && incomingData().uid == userId;
-      allow update: if isOwner(userId)
-                     && incomingData().uid == userId
-                     && incomingData().email == resource.data.email;
+      allow read: if isAuthed();
+      allow create, update: if isAuthed() && request.auth.uid == userId;
     }
 
-    match /phonenumbers/{number} {
-      allow get: if isAuthed();
-      allow create: if isAuthed()
-                    && incomingData().uid == uid();
-      allow delete: if isAuthed()
-                    && resource.data.uid == uid();
-    }
-
-    match /chats/{chatId} {
-      allow get: if isAuthed()
-                  && uid() in resource.data.members;
-      
-      allow list: if isAuthed()
-                   && request.query.where.find(p => p[0] == "members" && p[1] == "array-contains" && p[2] == uid()) != null;
-
-      allow create: if isAuthed()
-                    && uid() in incomingData().members
-                    // Group Chat Creation
-                    && ( (incomingData().isGroup == true && uid() in incomingData().admins) ||
-                    // 1-on-1 Chat Creation
-                         (incomingData().isGroup == false && incomingData().members.size() == 2 && path == incomingData().members.sort().join('_'))
-                       );
-
-      allow update: if isAuthed()
-                    && uid() in resource.data.members
-                    // Allow admins to manage group
-                    && ( (uid() in resource.data.admins && incomingData().diff(resource.data).affectedKeys().hasOnly(['members', 'memberProfiles', 'admins', 'groupName', 'groupAvatarURL'])) ||
-                    // Allow any member to update typing, last message, mutedBy, or wallpaper
-                         (incomingData().diff(resource.data).affectedKeys().hasOnly(['typing', 'lastMessage', 'mutedBy', 'wallpaperURL']))
-                       );
-
-      // Messages Subcollection
-      match /messages/{messageId} {
-        allow read: if isChatMember(chatId);
-        
-        allow create: if isChatMember(chatId)
-                      && incomingData().senderId == uid();
-
-        allow update: if isChatMember(chatId)
-                      // Allow original sender to edit content
-                      && ( (resource.data.senderId == uid() && incomingData().diff(resource.data).affectedKeys().hasOnly(['content', 'isEdited'])) ||
-                      // Allow any member to update reactions or starred status
-                           (incomingData().diff(resource.data).affectedKeys().hasOnly(['reactions', 'starredBy', 'readBy']))
-                         );
-        
-        allow delete: if isChatMember(chatId)
-                      && resource.data.senderId == uid();
-      }
-    }
-
-    match /calls/{callId} {
-      allow read: if isAuthed()
-                  && (uid() == resource.data.callerId || uid() == resource.data.calleeId);
-
-      allow create: if isAuthed()
-                    && incomingData().callerId == uid();
-      
-      allow update: if isAuthed()
-                    // Callee can provide the answer
-                    && ( (uid() == resource.data.calleeId && incomingData().diff(resource.data).affectedKeys().hasOnly(['answer', 'status', 'connectedAt'])) ||
-                    // Caller or Callee can update status to end the call
-                         ((uid() == resource.data.callerId || uid() == resource.data.calleeId) && incomingData().status != resource.data.status)
-                       );
-
-      // ICE Candidates Subcollections
-      match /callerCandidates/{candidateId} {
-        allow read, create: if isAuthed() && uid() == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId;
-      }
-
-      match /calleeCandidates/{candidateId} {
-        allow read, create: if isAuthed() && uid() == get(/databases/$(database)/documents/calls/$(callId)).data.callerId;
-      }
+    match /phonenumbers/{phoneNumber} {
+      allow read: if isAuthed();
+      allow create: if isAuthed() && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAuthed() && resource.data.uid == request.auth.uid;
     }
 
     match /feedback/{feedbackId} {
-      allow create: if isAuthed() && incomingData().userId == uid();
-      allow read, update, delete: if false;
+      allow create: if isAuthed() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // ========= CHATS & MESSAGES =========
+    match /chats/{chatId} {
+      // Helper function to check if the current user is a member of this chat.
+      function isChatMember() {
+        return isAuthed() && request.auth.uid in resource.data.members;
+      }
+
+      // Allow reading a chat document if the user is a member.
+      allow get: if isChatMember();
+
+      // Allow listing chats only when the query filters for the user's membership.
+      allow list: if isAuthed() && request.query.where.path == 'members' && request.query.where.op == 'array-contains' && request.query.where.value == request.auth.uid;
+
+      // Allow creating a chat if the user is included in the new members list.
+      allow create: if isAuthed() && request.auth.uid in request.resource.data.members;
+
+      // Allow updates (e.g., lastMessage, typing) if the user is a member.
+      allow update: if isChatMember();
+
+      // --- MESSAGES SUBCOLLECTION ---
+      match /messages/{messageId} {
+        function isMessageSender() {
+          return isAuthed() && request.auth.uid == resource.data.senderId;
+        }
+        
+        function isParentChatMember() {
+            return isAuthed() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+        }
+
+        // Allow reading messages if the user is a member of the parent chat.
+        allow read, list: if isParentChatMember();
+
+        // Allow creating a message if the user is a member and the designated sender.
+        allow create: if isParentChatMember() && request.resource.data.senderId == request.auth.uid;
+
+        // Allow updates (like reactions) by any chat member.
+        // Content can only be edited by the original sender.
+        allow update: if isParentChatMember() &&
+          (resource.data.content == request.resource.data.content || isMessageSender());
+
+        // Allow the sender to delete their own message.
+        allow delete: if isMessageSender();
+      }
+    }
+
+    // ========= CALLS & SIGNALING =========
+    match /calls/{callId} {
+        function isCaller() {
+            return isAuthed() && request.auth.uid == resource.data.callerId;
+        }
+        function isCallee() {
+            return isAuthed() && request.auth.uid == resource.data.calleeId;
+        }
+
+        // Only the caller or callee can read call details.
+        allow read: if isCaller() || isCallee();
+        
+        // Only the authenticated caller can create a call document.
+        allow create: if isAuthed() && request.resource.data.callerId == request.auth.uid;
+
+        // Caller or callee can update the call (e.g., status, answer).
+        allow update: if isCaller() || isCallee();
+
+        // --- ICE CANDIDATES SUBCOLLECTIONS ---
+        match /callerCandidates/{candidateId} {
+          // The caller can add their ICE candidates.
+          allow create: if isAuthed() && request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId;
+        }
+
+        match /calleeCandidates/{candidateId} {
+          // The callee can add their ICE candidates.
+          allow create: if isAuthed() && request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId;
+        }
     }
   }
 }
