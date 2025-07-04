@@ -37,14 +37,6 @@ export default function ChatAppLayout({
     );
   }
 
-  if (!profile?.display_name && !isSetupDialogOpen) {
-     return (
-      <div className="flex h-screen w-full items-center justify-center bg-background">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-      </div>
-    );
-  }
-
   return (
     <>
       <ProfileSetupDialog open={isSetupDialogOpen} onOpenChange={setSetupDialogOpen} />
