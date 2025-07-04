@@ -1,73 +1,125 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
+    // Helper function to check if a user is authenticated.
     function isAuthed() {
       return request.auth != null;
     }
 
+    // Helper function to check if the authenticated user's ID matches a given userId.
+    function isUser(userId) {
+      return isAuthed() && request.auth.uid == userId;
+    }
+
+    // USER PROFILES (/users/{userId})
     match /users/{userId} {
-      allow read: if isAuthed();
-      allow create: if request.auth.uid == userId;
-      allow update: if request.auth.uid == userId;
+      // Any authenticated user can view basic profile info.
+      allow get: if isAuthed();
+      
+      // A user can create their own profile document.
+      allow create: if isUser(userId) && request.resource.data.uid == request.auth.uid;
+                       
+      // A user can only update their own profile. Key fields are immutable.
+      allow update: if isUser(userId) && request.resource.data.uid == resource.data.uid;
+                       
+      // A user can delete their own account data.
+      allow delete: if isUser(userId);
     }
 
-    match /phonenumbers/{phone} {
-      allow read, write: if isAuthed();
+    // PHONE NUMBER LOOKUP (/phonenumbers/{phoneNumber})
+    match /phonenumbers/{phoneNumber} {
+      // Any authenticated user can check if a number is already taken.
+      allow get: if isAuthed();
+      
+      // A user can only create or delete a phone number document associated with their UID.
+      allow create: if isAuthed() && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAuthed() && resource.data.uid == request.auth.uid;
+      
+      // Updating is disallowed; must be deleted and re-created.
+      allow update: if false;
     }
-
+    
+    // CHATS (/chats/{chatId})
     match /chats/{chatId} {
-      // GET: Allow reading a single chat doc if the user is a member.
-      // This rule also handles the case where the document doesn't exist yet, which is
-      // necessary for the app to check if a chat needs to be created.
-      allow get: if isAuthed() && 
-                    ( (resource != null && request.auth.uid in resource.data.members) || 
-                      (resource == null && request.auth.uid in chatId.split('_')) );
-      
-      // LIST: Allow any authenticated user to query the chats collection.
-      // The query in the app ("where member array contains user ID") ensures they only
-      // see their own chats, and the 'get' rule above secures direct access.
-      allow list: if isAuthed();
-      
-      // CREATE: Allow creating a chat if the user is a member and the data is valid.
-      allow create: if isAuthed() && request.auth.uid in request.resource.data.members && (
-        // Case 1: 1-on-1 Chat
-        (
-          request.resource.data.isGroup == false &&
-          request.resource.data.members[0] < request.resource.data.members[1] &&
-          chatId == request.resource.data.members[0] + '_' + request.resource.data.members[1]
-        ) ||
-        // Case 2: Group Chat
-        (
-          request.resource.data.isGroup == true &&
-          request.auth.uid in request.resource.data.admins
-        )
-      );
+      // READ (GET): Allow if user is a member.
+      // Also allows checking for a non-existent 1-on-1 chat before creation,
+      // by confirming the user's UID is part of the predictable document ID.
+      // This is the key fix for the "failed to create chat" error.
+      allow get: if isAuthed() &&
+                   ( (resource != null && request.auth.uid in resource.data.members) ||
+                     (resource == null && chatId.matches('.*' + request.auth.uid + '.*') && !chatId.matches('^[a-zA-Z0-9]{20}$'))
+                   );
 
-      // UPDATE: Allow updates if the user is a member.
+      // READ (LIST): Allow querying for a list of chats, but ONLY if filtering by their own membership.
+      // This prevents a user from fetching all chats in the database.
+      allow list: if isAuthed() && request.query.where.size() > 0 &&
+                   request.query.where[0][0] == "members" &&
+                   request.query.where[0][1] == "array-contains" &&
+                   request.query.where[0][2] == request.auth.uid;
+
+      // CREATE: Allow if the user creating the chat is including themselves in the members list.
+      allow create: if isAuthed() && request.auth.uid in request.resource.data.members;
+
+      // UPDATE: Allow if the user is a member of the chat.
       allow update: if isAuthed() && request.auth.uid in resource.data.members;
+      
+      // DELETE: Deleting chats from the client is disabled for data integrity.
+      allow delete: if false;
 
+      // MESSAGES Subcollection (/chats/{chatId}/messages/{messageId})
       match /messages/{messageId} {
-        allow read, write: if isAuthed() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+        // Can read messages only if they are a member of the parent chat.
+        allow get, list: if isAuthed() &&
+                           get(/databases/$(database)/documents/chats/$(chatId)).data.members.hasAny([request.auth.uid]);
+
+        // Can create a message if they are a member and the senderId is their own.
+        allow create: if isAuthed() &&
+                         get(/databases/$(database)/documents/chats/$(chatId)).data.members.hasAny([request.auth.uid]) &&
+                         request.resource.data.senderId == request.auth.uid;
+                         
+        // Can update a message for non-content changes (reactions, stars) if a member.
+        // Can only update content if they are the original sender.
+        allow update: if isAuthed() &&
+                         get(/databases/$(database)/documents/chats/$(chatId)).data.members.hasAny([request.auth.uid]) &&
+                         (
+                           // Allows anyone in chat to update reactions/stars (fields other than content/file)
+                           (request.resource.data.content == resource.data.content &&
+                            request.resource.data.fileURL == resource.data.fileURL) ||
+                           // Allows original sender to edit content/file
+                           (resource.data.senderId == request.auth.uid)
+                         );
+
+        // Can delete their own messages.
+        allow delete: if isAuthed() && resource.data.senderId == request.auth.uid;
       }
     }
 
+    // CALLS (/calls/{callId})
     match /calls/{callId} {
-      allow create: if isAuthed() && request.auth.uid == request.resource.data.callerId;
-      allow read, update: if isAuthed() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId);
-      
-      match /candidatesCollection/{candidateId} {
-        allow create: if isAuthed() && (
-          request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
-          request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId
-        );
+      // Can access or update a call doc if they are the caller or callee.
+      allow get, list, update: if isAuthed() &&
+                               (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId);
+
+      // Caller can create a call.
+      allow create: if isAuthed() && request.resource.data.callerId == request.auth.uid;
+
+      // ICE CANDIDATES Subcollection (/calls/{callId}/...)
+      match /{candidates=**} {
+        // Caller or callee can read/write ICE candidates to establish connection.
+        allow read, write: if isAuthed() &&
+                             (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+                              request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId);
       }
     }
     
+    // FEEDBACK (/feedback/{feedbackId})
     match /feedback/{feedbackId} {
-      allow create: if isAuthed();
+      // A user can only create feedback for themselves.
+      allow create: if isAuthed() && request.resource.data.userId == request.auth.uid;
+      // Nobody can read/update/delete feedback from the client for privacy.
+      allow read, update, delete: if false;
     }
   }
 }
