@@ -13,6 +13,38 @@ service cloud.firestore {
       return isAuthed() && request.auth.uid == userId;
     }
 
+    // Helper function to check if a user is a member of a specific chat (using existing resource).
+    function isChatMemberResource() {
+      return request.auth.uid in resource.data.members;
+    }
+
+    // Helper function to check if a user is an admin of a specific group chat (using existing resource).
+    // Assumes resource.data is available and represents a chat document.
+    function isChatAdminResource() {
+      return resource.data.isGroup == true && request.auth.uid in resource.data.admins;
+    }
+
+    // Helper function to check if a user is an admin of a specific group chat by fetching the chat document.
+    // Used when resource.data might not be directly available or for more explicit access control.
+    function isChatAdmin(chatId) {
+      let chatDoc = get(/databases/$(database)/documents/chats/$(chatId));
+      return chatDoc.data.isGroup == true && request.auth.uid in chatDoc.data.admins;
+    }
+
+    // Helper function to check if the requesting user is a member of the specified chat by fetching the chat document.
+    function isActualChatMember(chatId) {
+      let chatDoc = get(/databases/$(database)/documents/chats/$(chatId));
+      // Ensure chatDoc and chatDoc.data and chatDoc.data.members are not null before checking 'in'
+      return chatDoc != null && chatDoc.data != null && chatDoc.data.members != null && request.auth.uid in chatDoc.data.members;
+    }
+
+    // Helper function to check if the user is a participant (caller or callee) of a call.
+    function isCallParticipant(callId) {
+      let callDocData = get(/databases/$(database)/documents/calls/$(callId)).data;
+      return callDocData != null && (request.auth.uid == callDocData.callerId || request.auth.uid == callDocData.calleeId);
+    }
+
+
     // USER PROFILES (/users/{userId})
     match /users/{userId} {
       // Any authenticated user can view basic profile info.
@@ -60,64 +92,189 @@ service cloud.firestore {
                    request.query.where[0][2] == request.auth.uid;
 
       // CREATE: Allow if the user creating the chat is including themselves in the members list.
-      allow create: if isAuthed() && request.auth.uid in request.resource.data.members;
+      // Ensure essential fields are present and correctly structured for 1-on-1 vs group.
+      allow create: if isAuthed() &&
+                       request.auth.uid in request.resource.data.members &&
+                       request.resource.data.createdAt == request.time && // Enforce server timestamp for creation
+                       ( (request.resource.data.isGroup == false &&
+                          request.resource.data.keys().hasAll(['members', 'memberProfiles', 'typing', 'createdAt', 'isGroup', 'mutedBy']) &&
+                          !request.resource.data.keys().hasAny(['groupName', 'groupAvatarURL', 'admins', 'createdBy'])) ||
+                         (request.resource.data.isGroup == true &&
+                          request.resource.data.createdBy == request.auth.uid &&
+                          request.auth.uid in request.resource.data.admins &&
+                          request.resource.data.keys().hasAll(['members', 'memberProfiles', 'typing', 'createdAt', 'isGroup', 'mutedBy', 'groupName', 'groupAvatarURL', 'admins', 'createdBy']))
+                       );
 
-      // UPDATE: Allow if the user is a member of the chat.
-      allow update: if isAuthed() && request.auth.uid in resource.data.members;
+      // UPDATE:
+      // - Any member can update 'typing', 'wallpaperURL', 'mutedBy'.
+      // - Only admins can update 'groupName', 'groupAvatarURL', 'members', 'admins', 'memberProfiles' for group chats.
+      // - 'lastMessage' is updated by server-side logic (e.g. when a new message is created), not directly by client.
+      // - 'isGroup', 'createdBy', 'createdAt' should be immutable after creation.
+      allow update: if isAuthed() && isChatMemberResource() {
+                      // Fields that should not change after creation or be client-modified
+                      let immutableOrServerManagedFields = ['isGroup', 'createdBy', 'createdAt', 'lastMessage', 'id'];
+                      // Fields any member can update
+                      let generalMemberUpdatableFields = ['typing', 'wallpaperURL', 'mutedBy'];
+                      // Fields only admins can update for group chats
+                      let groupAdminUpdatableFields = ['groupName', 'groupAvatarURL', 'members', 'admins', 'memberProfiles'];
+
+                      let incomingData = request.resource.data;
+                      let existingData = resource.data;
+                      let changedKeys = incomingData.diff(existingData).affectedKeys();
+
+                      // Check for modification of immutable or server-managed fields
+                      let modifiesImmutableOrServerManaged = changedKeys.hasAny(immutableOrServerManagedFields);
+
+                      // Ensure no other fields are being snuck in
+                      let allAllowedUpdateKeys = generalMemberUpdatableFields.concat(groupAdminUpdatableFields);
+                      let onlyAllowedKeysModified = changedKeys.hasOnly(allAllowedUpdateKeys);
+
+                      if (modifiesImmutableOrServerManaged) {
+                        false // Disallow if trying to change immutable/server-managed fields
+                      } else if (existingData.isGroup == true) {
+                        // Group chat logic
+                        let generalChanges = changedKeys.hasOnly(generalMemberUpdatableFields);
+                        let adminChanges = changedKeys.hasAny(groupAdminUpdatableFields);
+
+                        if (adminChanges) {
+                           // If any admin field is changed, ALL changes must be permissible admin changes AND user must be admin
+                           isChatAdminResource() && changedKeys.hasOnly(groupAdminUpdatableFields.concat(generalMemberUpdatableFields))
+                        } else {
+                           // Only general fields are changed
+                           generalChanges
+                        }
+                      } else {
+                        // Non-group chat (1-on-1)
+                        // Only general member updatable fields are allowed.
+                        changedKeys.hasOnly(generalMemberUpdatableFields)
+                      }
+                    } else {
+                      false // Not authenticated or not a member
+                    };
       
       // DELETE: Deleting chats from the client is disabled for data integrity.
       allow delete: if false;
 
       // MESSAGES Subcollection (/chats/{chatId}/messages/{messageId})
       match /messages/{messageId} {
-        // Can read messages only if they are a member of the parent chat.
-        allow get, list: if isAuthed() &&
-                           get(/databases/$(database)/documents/chats/$(chatId)).data.members.hasAny([request.auth.uid]);
+        allow get, list: if isAuthed() && isActualChatMember(chatId);
 
-        // Can create a message if they are a member and the senderId is their own.
-        allow create: if isAuthed() &&
-                         get(/databases/$(database)/documents/chats/$(chatId)).data.members.hasAny([request.auth.uid]) &&
-                         request.resource.data.senderId == request.auth.uid;
-                         
-        // Can update a message for non-content changes (reactions, stars) if a member.
-        // Can only update content if they are the original sender.
-        allow update: if isAuthed() &&
-                         get(/databases/$(database)/documents/chats/$(chatId)).data.members.hasAny([request.auth.uid]) &&
-                         (
-                           // Allows anyone in chat to update reactions/stars (fields other than content/file)
-                           (request.resource.data.content == resource.data.content &&
-                            request.resource.data.fileURL == resource.data.fileURL) ||
-                           // Allows original sender to edit content/file
-                           (resource.data.senderId == request.auth.uid)
-                         );
+        allow create: if isAuthed() && isActualChatMember(chatId) &&
+                         request.resource.data.senderId == request.auth.uid &&
+                         request.resource.data.timestamp == request.time &&
+                         (request.resource.data.content is string || request.resource.data.fileURL is string) && // content or fileURL must be present
+                         request.resource.data.readBy == [request.auth.uid] &&
+                         !('id' in request.resource.data) && // client cannot set message id
+                         (request.resource.data.isEdited == false || !('isEdited' in request.resource.data)) &&
+                         (!('reactions' in request.resource.data) || request.resource.data.reactions.size() == 0) &&
+                         (!('starredBy' in request.resource.data) || request.resource.data.starredBy.size() == 0);
+                         // Ensure other fields are not set or are default on create
 
-        // Can delete their own messages.
-        allow delete: if isAuthed() && resource.data.senderId == request.auth.uid;
+        allow update: if isAuthed() && isActualChatMember(chatId) {
+                        let incoming = request.resource.data;
+                        let existing = resource.data;
+                        let changedKeys = incoming.diff(existing).affectedKeys();
+
+                        // Immutable fields after creation: senderId, timestamp. replyTo is also immutable once set.
+                        let isModifyingImmutable = incoming.senderId != existing.senderId ||
+                                                   incoming.timestamp != existing.timestamp ||
+                                                   ( ('replyTo' in existing && incoming.replyTo != existing.replyTo) ||
+                                                     (!('replyTo' in existing) && 'replyTo' in incoming && incoming.replyTo != null) // Can set replyTo once if it wasn't there
+                                                   );
+                                                   // More precise: Allow setting replyTo if not exists, but not changing if exists.
+                        let attemptToChangeReplyToIfExists = 'replyTo' in existing && existing.replyTo != null &&
+                                                             'replyTo' in incoming && incoming.replyTo != existing.replyTo;
+                        let attemptToAddReplyToIfAlreadyExisted = 'replyTo' in existing && existing.replyTo != null &&
+                                                                  !('replyTo' in incoming); // Not allowing removal of replyTo for simplicity
+
+                        let isReplyLogicViolated = attemptToChangeReplyToIfExists || attemptToAddReplyToIfAlreadyExisted;
+
+
+                        // Allowed fields for sender to update: content, fileURL, fileName, fileType, isClip, isEdited
+                        let senderUpdatableFields = ['content', 'fileURL', 'fileName', 'fileType', 'isClip', 'isEdited'];
+                        // Allowed fields for any member to update (reactions, starredBy)
+                        let memberUpdatableFields = ['reactions', 'starredBy'];
+                        // readBy is handled by server logic typically
+
+                        if (isModifyingImmutable || isReplyLogicViolated) {
+                          false
+                        } else if (existing.senderId == request.auth.uid) {
+                          // Sender can edit their message content/file or general fields
+                          // Sender should not directly edit readBy array, only their own reactions/stars or content
+                          let allowedForSender = senderUpdatableFields.concat(memberUpdatableFields);
+                          changedKeys.hasOnly(allowedForSender)
+                        } else {
+                          // Other members can only update general fields (reactions, starredBy)
+                          // Other members cannot edit content, fileURL, isEdited, etc.
+                          changedKeys.hasOnly(memberUpdatableFields)
+                        }
+                      } else {
+                        false // Not authed or not a member
+                      };
+
+        // Can delete their own messages, provided they are a member of the chat.
+        allow delete: if isAuthed() && isActualChatMember(chatId) && resource.data.senderId == request.auth.uid;
       }
     }
 
     // CALLS (/calls/{callId})
     match /calls/{callId} {
       // Can access or update a call doc if they are the caller or callee.
-      allow get, list, update: if isAuthed() &&
-                               (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId);
+      // For update, ensure only specific fields are changed by participants (e.g. status, answer, endedAt, duration)
+      // callerId, calleeId, chatId, type, offer, createdAt should be immutable.
+      allow get, list: if isAuthed() && isCallParticipant(callId);
 
-      // Caller can create a call.
-      allow create: if isAuthed() && request.resource.data.callerId == request.auth.uid;
+      allow update: if isAuthed() && isCallParticipant(callId) {
+        let existing = resource.data;
+        let incoming = request.resource.data;
+        let changedKeys = incoming.diff(existing).affectedKeys();
+        let immutableFields = ['callerId', 'calleeId', 'chatId', 'type', 'offer', 'createdAt', 'callerName', 'callerPhotoURL', 'calleeName', 'calleePhotoURL'];
+        let participantUpdatableFields = ['status', 'answer', 'endedAt', 'duration', 'connectedAt'];
 
-      // ICE CANDIDATES Subcollection (/calls/{callId}/...)
-      match /{candidates=**} {
-        // Caller or callee can read/write ICE candidates to establish connection.
-        allow read, write: if isAuthed() &&
-                             (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
-                              request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId);
+        !changedKeys.hasAny(immutableFields) && changedKeys.hasOnly(participantUpdatableFields)
+      };
+
+      // Caller can create a call with proper initial data.
+      allow create: if isAuthed() &&
+                     request.resource.data.callerId == request.auth.uid &&
+                     request.resource.data.calleeId != request.auth.uid &&
+                     request.resource.data.calleeId is string &&
+                     request.resource.data.createdAt == request.time &&
+                     request.resource.data.status == 'ringing' &&
+                     request.resource.data.keys().hasAll(['chatId', 'callerId', 'callerName', 'callerPhotoURL', 'calleeId', 'status', 'type', 'offer', 'createdAt']) &&
+                     request.resource.data.type in ['video', 'audio'] &&
+                     request.resource.data.offer.sdp is string &&
+                     request.resource.data.offer.type == 'offer' &&
+                     !('answer' in request.resource.data) && // Answer should not be present on create
+                     !('id' in request.resource.data); // id is auto-assigned
+
+      // ICE CANDIDATES Subcollections
+      match /callerCandidates/{candidateId} {
+        allow read, write: if isAuthed() && isCallParticipant(callId) &&
+                            // On create, ensure the candidate data is valid (basic check)
+                            (!exists(/databases/$(database)/documents/calls/$(callId)/callerCandidates/$(candidateId)) ?
+                              request.resource.data.keys().hasAll(['candidate', 'sdpMid', 'sdpMLineIndex'])
+                              : true);
+      }
+      match /calleeCandidates/{candidateId} {
+         allow read, write: if isAuthed() && isCallParticipant(callId) &&
+                             (!exists(/databases/$(database)/documents/calls/$(callId)/calleeCandidates/$(candidateId)) ?
+                               request.resource.data.keys().hasAll(['candidate', 'sdpMid', 'sdpMLineIndex'])
+                               : true);
       }
     }
     
     // FEEDBACK (/feedback/{feedbackId})
     match /feedback/{feedbackId} {
-      // A user can only create feedback for themselves.
-      allow create: if isAuthed() && request.resource.data.userId == request.auth.uid;
+      // A user can only create feedback for themselves, with valid data.
+      allow create: if isAuthed() &&
+                     request.resource.data.userId == request.auth.uid &&
+                     request.resource.data.createdAt == request.time &&
+                     request.resource.data.rating is number && request.resource.data.rating >= 1 && request.resource.data.rating <= 5 &&
+                     request.resource.data.report is string && request.resource.data.report.size() > 0 && request.resource.data.report.size() < 1024 && // Max length
+                     request.resource.data.userAgent is string && request.resource.data.userAgent.size() < 256 && // Max length
+                     !('id' in request.resource.data); // id is auto-assigned
+
       // Nobody can read/update/delete feedback from the client for privacy.
       allow read, update, delete: if false;
     }
