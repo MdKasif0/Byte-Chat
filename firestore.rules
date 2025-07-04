@@ -1,0 +1,80 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+  
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isChatMember(chatId) {
+        return isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+    }
+    
+    function isCallParticipant(callId) {
+        let call = get(/databases/$(database)/documents/calls/$(callId)).data;
+        return isSignedIn() && (request.auth.uid == call.callerId || request.auth.uid == call.calleeId);
+    }
+
+    // User profiles
+    match /users/{userId} {
+      // Anyone can see a user's profile
+      allow read: if isSignedIn();
+      // Only the user can create or update their own profile
+      allow create, update: if isOwner(userId);
+    }
+    
+    // Unique phone number mapping
+    match /phonenumbers/{phoneNumber} {
+        // A user can create a phone number document only for their own UID
+        allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+        // Disallow reading, listing, or modifying these mappings
+        allow read, list, update, delete: if false;
+    }
+
+    // Chat conversations
+    match /chats/{chatId} {
+      // Allow read and write if the user is a member of the chat
+      allow read, write: if isChatMember(chatId);
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        // Allow read if user is a member of the parent chat
+        allow read: if isChatMember(chatId);
+        
+        // Allow create if user is a member and the message is from them
+        allow create: if isChatMember(chatId) && request.resource.data.senderId == request.auth.uid;
+        
+        // Allow update/delete only for the user's own messages
+        allow update, delete: if isChatMember(chatId) && resource.data.senderId == request.auth.uid;
+      }
+    }
+    
+    // Call logs
+    match /calls/{callId} {
+      // Allow creation if the caller is the current user
+      allow create: if isSignedIn() && request.resource.data.callerId == request.auth.uid;
+      // Allow read/update if user is a participant
+      allow read, update: if isCallParticipant(callId);
+
+      // ICE candidates subcollections
+      match /{candidates=**} {
+        // Allow read/write for call participants during signaling
+        allow read, write: if isCallParticipant(callId);
+      }
+    }
+
+    // Feedback
+    match /feedback/{feedbackId} {
+      // Any signed-in user can submit feedback
+      allow create: if isSignedIn();
+      // Only admins should read feedback (disabling for now)
+      allow read, update, delete: if false;
+    }
+  }
+}
