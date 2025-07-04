@@ -94,7 +94,7 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
       
       await refreshProfile();
       onOpenChange(false);
-      router.push('/profile');
+      router.push('/chat');
 
     } catch (error: any) {
       console.error("Error setting up profile: ", error);

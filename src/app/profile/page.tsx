@@ -19,7 +19,6 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Profile } from "@/lib/types";
 
 const phoneSchema = z.object({
   phone: z.string().min(10, {
@@ -96,7 +95,9 @@ export default function ProfilePage() {
     return (
        <div className="w-full min-h-screen p-4 md:p-6 space-y-6">
           <div className="flex items-center gap-4">
-              <Skeleton className="h-9 w-9" />
+              <Button variant="ghost" size="icon" onClick={() => router.back()}>
+                <Skeleton className="h-5 w-5" />
+              </Button>
               <Skeleton className="h-6 w-24" />
           </div>
           <div className="flex flex-col items-center gap-4 pt-8">
