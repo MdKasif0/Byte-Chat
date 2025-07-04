@@ -18,7 +18,6 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Profile } from "@/lib/types";
 
 const phoneSchema = z.object({
   phone: z.string().min(10, {
@@ -32,11 +31,10 @@ const statusSchema = z.object({
 });
 
 export default function ProfilePage() {
-  const { user, profile: initialProfile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   const supabase = createClient();
-  const [profile, setProfile] = useState<Profile | null>(initialProfile);
   const [isPhoneDialogOpen, setPhoneDialogOpen] = useState(false);
   const [isStatusDialogOpen, setStatusDialogOpen] = useState(false);
 
@@ -48,12 +46,11 @@ export default function ProfilePage() {
   });
 
   useEffect(() => {
-    if (initialProfile) {
-        setProfile(initialProfile);
-        phoneForm.reset({ phone: initialProfile.phone });
-        statusForm.reset({ status: initialProfile.status });
+    if (profile) {
+        phoneForm.reset({ phone: profile.phone || "" });
+        statusForm.reset({ status: profile.status || "" });
     }
-  }, [initialProfile, phoneForm, statusForm]);
+  }, [profile, phoneForm, statusForm]);
 
   const onPhoneSubmit = async (values: z.infer<typeof phoneSchema>) => {
     if (!user || !profile) return;
@@ -70,7 +67,7 @@ export default function ProfilePage() {
         description: "Could not update your phone number. It might be taken.",
       });
     } else {
-      setProfile((p) => (p ? { ...p, phone: values.phone } : null));
+      await refreshProfile();
       toast({ title: "Success", description: "Phone number updated." });
       setPhoneDialogOpen(false);
     }
@@ -87,7 +84,7 @@ export default function ProfilePage() {
         console.error("Error updating status:", error);
         toast({ variant: "destructive", title: "Error", description: `Could not update status.` });
     } else {
-        setProfile((p) => (p ? { ...p, status: values.status } : null));
+        await refreshProfile();
         toast({ title: "Success", description: `Status updated.` });
         setStatusDialogOpen(false);
     }
