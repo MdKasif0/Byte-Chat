@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useForm } from "react-hook-form";
@@ -45,7 +46,7 @@ type ProfileSetupDialogProps = {
 };
 
 export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupDialogProps) {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const { toast } = useToast();
   const supabase = createClient();
 
@@ -88,9 +89,9 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
         title: "Welcome!",
         description: "Your profile has been set up.",
       });
+      
+      await refreshProfile();
       onOpenChange(false);
-      // Manually trigger a page reload to refresh the auth context with the new profile
-      window.location.reload();
 
     } catch (error: any) {
       console.error("Error setting up profile: ", error);
