@@ -49,7 +49,7 @@ export default function ProfilePage() {
   useEffect(() => {
     if (profile) {
         phoneForm.reset({ phone: profile.phone || "" });
-        statusForm.reset({ status: profile.status });
+        statusForm.reset({ status: profile.status || "" });
     }
   }, [profile, phoneForm, statusForm]);
 
