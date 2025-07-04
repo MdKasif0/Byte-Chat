@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
@@ -32,11 +33,10 @@ const statusSchema = z.object({
 });
 
 export default function ProfilePage() {
-  const { user, profile: initialProfile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   const supabase = createClient();
-  const [profile, setProfile] = useState<Profile | null>(initialProfile);
   const [isPhoneDialogOpen, setPhoneDialogOpen] = useState(false);
   const [isStatusDialogOpen, setStatusDialogOpen] = useState(false);
 
@@ -48,12 +48,11 @@ export default function ProfilePage() {
   });
 
   useEffect(() => {
-    if (initialProfile) {
-        setProfile(initialProfile);
-        phoneForm.reset({ phone: initialProfile.phone });
-        statusForm.reset({ status: initialProfile.status });
+    if (profile) {
+        phoneForm.reset({ phone: profile.phone || "" });
+        statusForm.reset({ status: profile.status });
     }
-  }, [initialProfile, phoneForm, statusForm]);
+  }, [profile, phoneForm, statusForm]);
 
   const onPhoneSubmit = async (values: z.infer<typeof phoneSchema>) => {
     if (!user || !profile) return;
@@ -70,7 +69,7 @@ export default function ProfilePage() {
         description: "Could not update your phone number. It might be taken.",
       });
     } else {
-      setProfile((p) => (p ? { ...p, phone: values.phone } : null));
+      await refreshProfile();
       toast({ title: "Success", description: "Phone number updated." });
       setPhoneDialogOpen(false);
     }
@@ -87,7 +86,7 @@ export default function ProfilePage() {
         console.error("Error updating status:", error);
         toast({ variant: "destructive", title: "Error", description: `Could not update status.` });
     } else {
-        setProfile((p) => (p ? { ...p, status: values.status } : null));
+        await refreshProfile();
         toast({ title: "Success", description: `Status updated.` });
         setStatusDialogOpen(false);
     }
@@ -152,7 +151,7 @@ export default function ProfilePage() {
         <section className="py-6 space-y-6">
             <InfoRow icon={<Phone className="text-muted-foreground" />} label="Phone Number">
                 <div className="flex items-center justify-between w-full">
-                    <span>{profile.phone}</span>
+                    <span>{profile.phone || 'Add phone number'}</span>
                     <Button variant="ghost" size="icon" onClick={() => setPhoneDialogOpen(true)}><Pencil className="h-4 w-4" /></Button>
                 </div>
             </InfoRow>
