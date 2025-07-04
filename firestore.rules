@@ -1,92 +1,117 @@
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Helper Functions
     function isAuthed() {
       return request.auth != null;
     }
 
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function isOwner(userId) {
+      return isAuthed() && uid() == userId;
+    }
+
+    function incomingData() {
+      return request.resource.data;
+    }
+
+    function isChatMember(chatId) {
+      return isAuthed() && get(/databases/$(database)/documents/chats/$(chatId)).data.members.hasAny([uid()]);
+    }
+
+    // Collections
     match /users/{userId} {
       allow get, list: if isAuthed();
-      allow create: if isAuthed() && request.auth.uid == userId;
-      allow update: if isAuthed() && request.auth.uid == userId;
+      allow create: if isOwner(userId)
+                    && incomingData().uid == userId;
+      allow update: if isOwner(userId)
+                     && incomingData().uid == userId
+                     && incomingData().email == resource.data.email;
     }
 
-    match /phonenumbers/{phoneNumber} {
+    match /phonenumbers/{number} {
       allow get: if isAuthed();
-      allow create: if isAuthed() && request.resource.data.uid == request.auth.uid;
-      allow delete: if isAuthed() && resource.data.uid == request.auth.uid;
-    }
-
-    match /feedback/{feedbackId} {
-      allow create: if isAuthed() && request.resource.data.userId == request.auth.uid;
-      allow read, update, delete: if false;
+      allow create: if isAuthed()
+                    && incomingData().uid == uid();
+      allow delete: if isAuthed()
+                    && resource.data.uid == uid();
     }
 
     match /chats/{chatId} {
-      // This is the key rule to fix the "failed to create chat" error.
-      // It allows a read (get) on a chat document under two conditions:
-      // 1. If the document exists, the user must be a member.
-      // 2. If the document does NOT exist (which happens when checking before creating a 1-on-1 chat),
-      //    it allows the check if the user's ID is part of the document ID itself (e.g., 'uid1_uid2').
-      allow get: if isAuthed() && (
-        (exists(/databases/$(database)/documents/chats/$(chatId)) && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members) ||
-        (!exists(/databases/$(database)/documents/chats/$(chatId)) && request.auth.uid in chatId.split('_'))
-      );
+      allow get: if isAuthed()
+                  && uid() in resource.data.members;
+      
+      allow list: if isAuthed()
+                   && request.query.where.find(p => p[0] == "members" && p[1] == "array-contains" && p[2] == uid()) != null;
 
-      allow list: if isAuthed() && request.query.where.field == "members" && request.query.where.op == "array-contains";
+      allow create: if isAuthed()
+                    && uid() in incomingData().members
+                    // Group Chat Creation
+                    && ( (incomingData().isGroup == true && uid() in incomingData().admins) ||
+                    // 1-on-1 Chat Creation
+                         (incomingData().isGroup == false && incomingData().members.size() == 2 && path == incomingData().members.sort().join('_'))
+                       );
 
-      allow create: if isAuthed() && request.auth.uid in request.resource.data.members;
+      allow update: if isAuthed()
+                    && uid() in resource.data.members
+                    // Allow admins to manage group
+                    && ( (uid() in resource.data.admins && incomingData().diff(resource.data).affectedKeys().hasOnly(['members', 'memberProfiles', 'admins', 'groupName', 'groupAvatarURL'])) ||
+                    // Allow any member to update typing, last message, mutedBy, or wallpaper
+                         (incomingData().diff(resource.data).affectedKeys().hasOnly(['typing', 'lastMessage', 'mutedBy', 'wallpaperURL']))
+                       );
 
-      allow update: if isAuthed() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
-
+      // Messages Subcollection
       match /messages/{messageId} {
-        function isChatMember() {
-          return request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
-        }
-
-        allow list, get: if isAuthed() && isChatMember();
+        allow read: if isChatMember(chatId);
         
-        allow create: if isAuthed() && 
-                      request.resource.data.senderId == request.auth.uid &&
-                      isChatMember();
-                      
-        allow delete: if isAuthed() && 
-                      resource.data.senderId == request.auth.uid &&
-                      isChatMember();
-                      
-        allow update: if isAuthed() &&
-                      isChatMember() &&
-                      (request.resource.data.content == resource.data.content || resource.data.senderId == request.auth.uid);
+        allow create: if isChatMember(chatId)
+                      && incomingData().senderId == uid();
+
+        allow update: if isChatMember(chatId)
+                      // Allow original sender to edit content
+                      && ( (resource.data.senderId == uid() && incomingData().diff(resource.data).affectedKeys().hasOnly(['content', 'isEdited'])) ||
+                      // Allow any member to update reactions or starred status
+                           (incomingData().diff(resource.data).affectedKeys().hasOnly(['reactions', 'starredBy', 'readBy']))
+                         );
+        
+        allow delete: if isChatMember(chatId)
+                      && resource.data.senderId == uid();
       }
     }
 
     match /calls/{callId} {
-        allow get: if isAuthed() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId);
+      allow read: if isAuthed()
+                  && (uid() == resource.data.callerId || uid() == resource.data.calleeId);
 
-        allow create: if isAuthed() && request.resource.data.callerId == request.auth.uid;
+      allow create: if isAuthed()
+                    && incomingData().callerId == uid();
+      
+      allow update: if isAuthed()
+                    // Callee can provide the answer
+                    && ( (uid() == resource.data.calleeId && incomingData().diff(resource.data).affectedKeys().hasOnly(['answer', 'status', 'connectedAt'])) ||
+                    // Caller or Callee can update status to end the call
+                         ((uid() == resource.data.callerId || uid() == resource.data.calleeId) && incomingData().status != resource.data.status)
+                       );
 
-        allow update: if isAuthed() && (
-            (request.auth.uid == resource.data.callerId && request.resource.data.status in ['cancelled', 'ended']) ||
-            (request.auth.uid == resource.data.calleeId && request.resource.data.status in ['connected', 'rejected', 'ended'])
-        );
-        
-        match /{candidateCollection}/{candidateId} {
-            function isCallerOfParent() {
-              return request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId;
-            }
-            function isCalleeOfParent() {
-                return request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId;
-            }
+      // ICE Candidates Subcollections
+      match /callerCandidates/{candidateId} {
+        allow read, create: if isAuthed() && uid() == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId;
+      }
 
-            allow get: if isAuthed() && (isCallerOfParent() || isCalleeOfParent());
+      match /calleeCandidates/{candidateId} {
+        allow read, create: if isAuthed() && uid() == get(/databases/$(database)/documents/calls/$(callId)).data.callerId;
+      }
+    }
 
-            allow create: if isAuthed() && (
-                (candidateCollection == 'callerCandidates' && isCallerOfParent()) ||
-                (candidateCollection == 'calleeCandidates' && isCalleeOfParent())
-            );
-        }
+    match /feedback/{feedbackId} {
+      allow create: if isAuthed() && incomingData().userId == uid();
+      allow read, update, delete: if false;
     }
   }
 }
