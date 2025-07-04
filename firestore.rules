@@ -1,11 +1,78 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Development mode: Allow read/write access to all authenticated users.
-    // This is NOT secure for production.
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+
+    // Helper Functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Users Collection
+    // - Allow users to read their own profile.
+    // - Allow users to create their own profile upon signup.
+    // - Allow users to update their own profile data.
+    // - Allow any signed-in user to read public profile data of others.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isUser(userId);
+      allow update: if isUser(userId);
+    }
+
+    // Phonenumbers Collection
+    // Used for looking up users by phone, must be unique.
+    // - Allow users to create their own phone number entry.
+    // - Allow users to read a phone number doc if they know the number.
+    // - Allow users to delete their old number entry if they are updating it.
+    match /phonenumbers/{phoneNumber} {
+        allow read, delete: if isSignedIn();
+        allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+    }
+
+    // Chats Collection
+    // - A user can only access chats they are a member of.
+    match /chats/{chatId} {
+      allow read, update: if isSignedIn() && request.auth.uid in resource.data.members;
+      
+      // Messages Subcollection
+      // - A user can read messages in a chat they belong to.
+      // - A user can send (create) messages in a chat they belong to.
+      // - A user can only update or delete their own messages.
+      match /messages/{messageId} {
+        allow read, create: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+        allow update, delete: if isSignedIn() && request.auth.uid == resource.data.senderId;
+      }
+    }
+    
+    // Feedback Collection
+    // - Any signed-in user can submit feedback.
+    // - Nobody can read others' feedback.
+    match /feedback/{feedbackId} {
+        allow create: if isSignedIn();
+        allow read, update, delete: if false;
+    }
+    
+    // Calls Collection
+    // - Users can create calls.
+    // - Users involved in the call (caller or callee) can read/update its state.
+    match /calls/{callId} {
+      allow create: if isSignedIn();
+      allow read, update: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId);
+
+      // ICE Candidates Subcollections
+      // - Only the intended recipient of the candidates can create them.
+      // - Only participants of the call can read them.
+      match /callerCandidates/{candidateId} {
+        allow create: if isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId;
+        allow read: if isSignedIn() && (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId || request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId);
+      }
+      match /calleeCandidates/{candidateId} {
+        allow create: if isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId;
+        allow read: if isSignedIn() && (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId || request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId);
+      }
     }
   }
 }
