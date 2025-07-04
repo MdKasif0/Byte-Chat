@@ -16,6 +16,7 @@ import {
   where,
   deleteDoc,
   Timestamp,
+  setDoc,
 } from "firebase/firestore";
 import { db } from "./firebase/config";
 import type { Message, UserProfile, Call, CallType, IceCandidateData } from "./types";
@@ -24,22 +25,20 @@ export async function createChat(
   currentUserId: string,
   otherUserId: string
 ): Promise<string> {
-  // Check if a chat already exists
-  const chatsRef = collection(db, "chats");
-  const q = query(
-    chatsRef,
-    where("isGroup", "==", false),
-    where("members", "==", [currentUserId, otherUserId].sort())
-  );
+  // Create a predictable, unique chat ID for the two users
+  const members = [currentUserId, otherUserId].sort();
+  const chatId = members.join('_');
+  
+  const chatRef = doc(db, "chats", chatId);
+  const chatSnap = await getDoc(chatRef);
 
-  const querySnapshot = await getDocs(q);
-
-  if (!querySnapshot.empty) {
-    // Chat already exists
-    return querySnapshot.docs[0].id;
+  if (chatSnap.exists()) {
+    // Chat already exists, return its ID
+    return chatSnap.id;
   }
   
-  const userDocs = await getDocs(query(collection(db, 'users'), where(documentId(), 'in', [currentUserId, otherUserId])));
+  // If chat doesn't exist, create it.
+  const userDocs = await getDocs(query(collection(db, 'users'), where(documentId(), 'in', members)));
   const memberProfiles = userDocs.docs.map(d => {
       const user = d.data() as UserProfile;
       return {
@@ -50,16 +49,16 @@ export async function createChat(
       }
   });
 
-  // Create a new chat
-  const newChatRef = await addDoc(collection(db, "chats"), {
-    members: [currentUserId, otherUserId].sort(),
+  // Create a new chat with the specific ID
+  await setDoc(chatRef, {
+    members: members,
     memberProfiles,
     typing: [],
     createdAt: serverTimestamp(),
     isGroup: false,
   });
 
-  return newChatRef.id;
+  return chatId;
 }
 
 export async function createGroupChat(creatorId: string, memberIds: string[], groupName: string) {

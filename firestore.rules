@@ -1,105 +1,71 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check if a user is authenticated
-    function isAuthenticated() {
+
+    function isSignedIn() {
       return request.auth != null;
     }
 
-    // Helper function to check if a user is the owner of a document
-    function isOwner(userId) {
-      return request.auth.uid == userId;
-    }
-
-    // Helper function to check if a user is a member of a chat (for single doc operations)
-    function isChatMember(chatId) {
-      return isAuthenticated() && get(/databases/$(database)/documents/chats/$(chatId)).data.members.hasAny([request.auth.uid]);
-    }
-    
-    // Helper function to check if a user is an admin of a chat (for single doc operations)
-    function isChatAdmin(chatId) {
-      return isAuthenticated() && get(/databases/$(database)/documents/chats/$(chatId)).data.admins.hasAny([request.auth.uid]);
-    }
-
-    // phonenumbers: Used to ensure phone numbers are unique
     match /phonenumbers/{phoneNumber} {
-        allow read: if true;
-        allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
-        allow update, delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.uid;
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.uid;
     }
 
-    // users: Public user profiles
     match /users/{userId} {
-      // Any authenticated user can read any user's profile for display purposes.
-      // This covers both single 'get' and collection 'list' queries.
-      allow read: if isAuthenticated();
-      
-      allow create: if isOwner(userId) && request.resource.data.uid == request.auth.uid;
-      allow update: if isOwner(userId);
-      allow delete: if isOwner(userId);
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && request.auth.uid == userId;
     }
 
-    // chats: containers for messages and members
     match /chats/{chatId} {
-      // Rule for querying the collection (list).
-      // The query in the app is `where("members", "array-contains", user.uid)`.
-      // This rule ensures that a user can only list chats they are a member of.
-      allow list: if isAuthenticated() && request.auth.uid in resource.data.members;
+      // Allow a list query only if it's explicitly filtering for chats the user is a member of.
+      allow list: if isSignedIn() && request.query.where.find(
+        w => w[0] == 'members' && w[1] == 'array-contains' && w[2] == request.auth.uid
+      ) != null;
 
-      // Rule for getting a single document.
-      allow get: if isAuthenticated() && resource.data.members.includes(request.auth.uid);
-      
-      // Creating a chat is allowed if the creator is in the members list.
-      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.members;
-      
-      // Updating a chat (e.g., last message, wallpaper) is allowed if the user is a member.
-      // isChatMember uses get(), which is fine for operations on a single document.
-      allow update: if isChatMember(chatId);
+      // Allow reading a single chat document.
+      // For 1-on-1 chats, we check if the user's ID is part of the document ID. This works even if the doc doesn't exist yet.
+      // For group chats, we check if the user is in the members list of the existing document.
+      allow get: if isSignedIn() && (
+        (request.auth.uid in chatId.split('_')) || 
+        (resource.data.isGroup == true && request.auth.uid in resource.data.members)
+      );
 
-      // A member can't delete a whole chat. This could be admin-only. For now, disable.
-      allow delete: if false;
+      // Allow creating a chat document.
+      allow create: if isSignedIn() && (
+        // Rule for 1-on-1 chats
+        (request.resource.data.isGroup == false &&
+         request.auth.uid in request.resource.data.members &&
+         chatId == request.resource.data.members.sort().join('_')) ||
+        // Rule for group chats
+        (request.resource.data.isGroup == true &&
+         request.auth.uid == request.resource.data.createdBy)
+      );
 
-      // messages: subcollection within a chat
+      // Allow updating a chat if the user is a member.
+      allow update: if isSignedIn() && resource.data.members.includes(request.auth.uid);
+
       match /messages/{messageId} {
-          allow read: if isChatMember(chatId);
-          allow create: if isChatMember(chatId) && request.resource.data.senderId == request.auth.uid;
-          
-          allow delete: if isChatMember(chatId) && resource.data.senderId == request.auth.uid;
-          
-          allow update: if isChatMember(chatId) && 
-            (
-                // You can edit your own message content
-                (resource.data.senderId == request.auth.uid && request.resource.data.content != resource.data.content) ||
-                // Any member can add/remove reactions or stars
-                (request.resource.data.keys().hasAll(['reactions', 'starredBy']))
-            );
+        // The get() call here is permitted by the parent `allow get` rule.
+        allow read, create: if isSignedIn() && get(/databases/$(database)/documents/chats/$(chatId)).data.members.includes(request.auth.uid);
+        allow update: if isSignedIn() && get(/databases/$(database)/documents/chats/$(chatId)).data.members.includes(request.auth.uid);
+        allow delete: if isSignedIn() 
+                      && get(/databases/$(database)/documents/chats/$(chatId)).data.members.includes(request.auth.uid)
+                      && resource.data.senderId == request.auth.uid;
       }
     }
     
-    // feedback: user-submitted feedback
-    match /feedback/{feedbackId} {
-        allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-        allow read, update, delete: if false;
+    match /calls/{callId} {
+      allow create: if isSignedIn() && get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.members.includes(request.auth.uid);
+      allow read, update: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId);
+      match /{candidateCollection}/{candidateId} {
+        allow create: if isSignedIn() && (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId || request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId);
+      }
     }
 
-    // calls: Call signaling documents
-    match /calls/{callId} {
-        allow create: if isChatMember(request.resource.data.chatId);
-        allow read: if isAuthenticated() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId);
-        allow update: if isAuthenticated() && (
-            (request.auth.uid == resource.data.calleeId && request.resource.data.answer != null) ||
-            ((request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.calleeId) && request.resource.data.status != resource.data.status)
-        );
-
-        match /callerCandidates/{candidateId} {
-            allow create: if isAuthenticated() && request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId;
-            allow read: if isAuthenticated() && (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId || request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId);
-        }
-        
-        match /calleeCandidates/{candidateId} {
-            allow create: if isAuthenticated() && request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId;
-            allow read: if isAuthenticated() && (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId || request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.calleeId);
-        }
+    match /feedback/{feedbackId} {
+      allow create: if isSignedIn();
     }
   }
 }
