@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2, Mic, Camera, StopCircle, Trash2, Bell, BellOff, Wallpaper, Search } from "lucide-react";
+import { Paperclip, Send, Phone, Video, MoreVertical, Smile, X, Users, Image as ImageIcon, FileText, Loader2, Mic, Camera, StopCircle, Trash2, Bell, BellOff, Wallpaper, Search, ArrowLeft, ArrowUp } from "lucide-react";
 import debounce from "lodash.debounce";
+import { format, isToday, isYesterday } from "date-fns";
 
 import { useAuth } from "@/context/AuthContext";
 import { useRealtimeQuery } from "@/hooks/use-realtime-query";
@@ -46,7 +47,19 @@ type CallRequest = {
     calleeId: string,
 }
 
-const MESSAGES_PER_PAGE = 25;
+const MESSAGES_PER_PAGE = 50;
+
+const DateSeparator = ({ date }: { date: Date }) => {
+  let label = format(date, "PPP");
+  if (isToday(date)) label = "Today";
+  if (isYesterday(date)) label = "Yesterday";
+
+  return (
+    <div className="flex items-center justify-center my-4">
+      <div className="text-xs text-muted-foreground font-semibold bg-background px-3 py-1 rounded-full">{label}</div>
+    </div>
+  );
+};
 
 export default function ChatWindow({ chatId }: ChatWindowProps) {
   const { user } = useAuth();
@@ -259,7 +272,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     
     const viewport = scrollAreaRef.current?.querySelector("div");
     if (viewport) {
-      viewport.scrollTop = viewport.scrollHeight;
+      setTimeout(() => viewport.scrollTop = viewport.scrollHeight, 100);
     }
     
     setIsUploading(false);
@@ -386,6 +399,17 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
           setCallRequest({ type, calleeId: otherUser.id });
       }
   }
+  
+  const messagesByDate = useMemo(() => {
+    return messages.reduce((acc, msg) => {
+        const dateKey = format(new Date(msg.created_at), 'yyyy-MM-dd');
+        if (!acc[dateKey]) {
+            acc[dateKey] = [];
+        }
+        acc[dateKey].push(msg);
+        return acc;
+    }, {} as Record<string, Message[]>);
+  }, [messages]);
 
   if (!chat || (!otherUser && !chat.is_group)) {
     return (
@@ -407,7 +431,7 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
   const isOnline = otherUserProfile?.is_online;
   const statusDisplay = chat.is_group
     ? `${chat.members.length} members`
-    : otherUserProfile?.status || (isOnline ? 'Online' : 'Offline');
+    : (isOnline ? 'Online' : 'Offline');
   const isStatusOnline = statusDisplay === 'Online';
   
   const headerDetails = {
@@ -441,59 +465,68 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
     >
       <header className="flex shrink-0 items-center justify-between border-b p-2 md:p-4 bg-card/80 backdrop-blur-sm">
         <div className="flex items-center gap-2 md:gap-4">
-          <Avatar>
-            <AvatarImage src={headerDetails.avatarUrl || undefined} alt={headerDetails.name || ""} data-ai-hint="person portrait" />
-            <AvatarFallback>{chat.is_group ? <Users /> : headerDetails.name?.charAt(0)}</AvatarFallback>
-          </Avatar>
-          <div>
-            <h2 className="text-lg font-semibold">{headerDetails.name}</h2>
-            <div className="text-sm text-muted-foreground h-5">
-              <AnimatePresence>
-                {typingUsers.length > 0 ? (
-                  <motion.p key="typing" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="text-primary">{typingText}</motion.p>
-                ) : (
-                   <motion.p key="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={isStatusOnline && !chat.is_group ? 'text-green-500' : ''}>{headerDetails.status}</motion.p>
-                )}
-              </AnimatePresence>
+            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => router.back()}><ArrowLeft /></Button>
+            <Avatar className="border-2 border-background">
+                <AvatarImage src={headerDetails.avatarUrl || undefined} alt={headerDetails.name || ""} data-ai-hint="person portrait" />
+                <AvatarFallback>{chat.is_group ? <Users /> : headerDetails.name?.charAt(0)}</AvatarFallback>
+            </Avatar>
+            <div>
+                <h2 className="text-lg font-semibold">{headerDetails.name}</h2>
+                <div className="flex items-center gap-1.5 text-sm text-muted-foreground h-5">
+                    {isStatusOnline && !chat.is_group && <div className="h-2 w-2 rounded-full bg-green-500" />}
+                    <AnimatePresence>
+                    {typingUsers.length > 0 ? (
+                        <motion.p key="typing" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="text-primary">{typingText}</motion.p>
+                    ) : (
+                        <motion.p key="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>{headerDetails.status}</motion.p>
+                    )}
+                    </AnimatePresence>
+                </div>
             </div>
-          </div>
         </div>
         <div className="flex items-center gap-1 md:gap-2">
-          {!chat.is_group && (
-            <>
-                <Button variant="ghost" size="icon" onClick={() => handleStartCall('video')}><Video className="h-5 w-5" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => handleStartCall('audio')}><Phone className="h-5 w-5" /></Button>
-            </>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon"><MoreVertical className="h-5 w-5" /></Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-                {chat.is_group ? (
-                    <DropdownMenuItem onSelect={() => setGroupInfoOpen(true)}>Group Details</DropdownMenuItem>
-                ) : (
-                    <DropdownMenuItem>View Contact</DropdownMenuItem>
-                )}
-                 <DropdownMenuItem onSelect={() => toast({ title: "Coming Soon!", description: "In-chat search is under development."})}>
-                    <Search className="mr-2 h-4 w-4" /> Search
-                 </DropdownMenuItem>
-                 <DropdownMenuItem onSelect={() => setWallpaperDialogOpen(true)}>
-                    <Wallpaper className="mr-2 h-4 w-4" /> Wallpaper
-                </DropdownMenuItem>
-                 <DropdownMenuItem onSelect={handleToggleMute}>
-                    {isMuted ? (
-                        <><Bell className="mr-2 h-4 w-4" /> Unmute Notifications</>
+            {!chat.is_group && (
+                <>
+                    <Button variant="ghost" size="icon" className="rounded-full bg-muted" onClick={() => handleStartCall('video')}><Video className="h-5 w-5" /></Button>
+                    <Button variant="ghost" size="icon" className="rounded-full bg-muted" onClick={() => handleStartCall('audio')}><Phone className="h-5 w-5" /></Button>
+                </>
+            )}
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="rounded-full bg-muted"><MoreVertical className="h-5 w-5" /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    {chat.is_group ? (
+                        <DropdownMenuItem onSelect={() => setGroupInfoOpen(true)}>Group Details</DropdownMenuItem>
                     ) : (
-                        <><BellOff className="mr-2 h-4 w-4" /> Mute Notifications</>
+                        <DropdownMenuItem>View Contact</DropdownMenuItem>
                     )}
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                    <DropdownMenuItem onSelect={() => toast({ title: "Coming Soon!", description: "In-chat search is under development."})}>
+                        <Search className="mr-2 h-4 w-4" /> Search
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setWallpaperDialogOpen(true)}>
+                        <Wallpaper className="mr-2 h-4 w-4" /> Wallpaper
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={handleToggleMute}>
+                        {isMuted ? (
+                            <><Bell className="mr-2 h-4 w-4" /> Unmute</>
+                        ) : (
+                            <><BellOff className="mr-2 h-4 w-4" /> Mute</>
+                        )}
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
         </div>
       </header>
+      
+      <div className="p-4 pt-0">
+            <div className="flex items-center justify-between rounded-full bg-primary text-primary-foreground px-4 py-2 text-sm">
+                <p className="font-medium">You have 04:42 min left</p>
+                <Button variant="link" className="text-primary-foreground font-bold hover:text-primary-foreground/80 h-auto p-0">Subscribe</Button>
+            </div>
+        </div>
 
-      <ScrollArea className="flex-1 bg-black/10" ref={scrollAreaRef}>
+      <ScrollArea className="flex-1" ref={scrollAreaRef}>
         <div className="p-4 space-y-2 h-full">
             {messagesLoading && messages?.length === 0 ? (
                 <div className="flex h-full items-center justify-center text-muted-foreground"><p>Loading messages...</p></div>
@@ -501,30 +534,26 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
                 <>
                 {hasMore && (
                     <div className="text-center my-4">
-                        <Button
-                            variant="secondary"
-                            onClick={loadMoreMessages}
-                            disabled={messagesLoading}
-                        >
-                            {messagesLoading ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Loading...
-                                </>
-                            ) : "Load Older Messages"}
+                        <Button variant="secondary" onClick={loadMoreMessages} disabled={messagesLoading}>
+                            {messagesLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading...</> : "Load Older Messages"}
                         </Button>
                     </div>
                 )}
-                {messages && messages.length > 0 ? (
-                    messages.map((message) => (
-                    <MessageBubble 
-                            key={message.id} 
-                            message={message}
-                            isGroupChat={chat.is_group} 
-                            senderProfile={getSenderProfile(message.sender_id)}
-                            onReply={setReplyTo}
-                            onMediaClick={openMedia}
-                        />
+                {Object.keys(messagesByDate).length > 0 ? (
+                    Object.entries(messagesByDate).map(([date, dateMessages]) => (
+                        <React.Fragment key={date}>
+                             <DateSeparator date={new Date(date)} />
+                            {dateMessages.map(message => (
+                                <MessageBubble 
+                                    key={message.id} 
+                                    message={message}
+                                    isGroupChat={chat.is_group} 
+                                    senderProfile={getSenderProfile(message.sender_id)}
+                                    onReply={setReplyTo}
+                                    onMediaClick={openMedia}
+                                />
+                            ))}
+                        </React.Fragment>
                     ))
                 ) : (
                     <div className="flex h-full items-center justify-center">
@@ -536,74 +565,23 @@ export default function ChatWindow({ chatId }: ChatWindowProps) {
         </div>
       </ScrollArea>
 
-      <footer className="border-t p-2 md:p-4 bg-card/80 backdrop-blur-sm space-y-2">
-        <AnimatePresence>
-        {selectedFile && recordingStatus === 'idle' && (
-            <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                className="relative flex items-center justify-between rounded-md bg-secondary p-2 text-sm"
-            >
-                <div className="flex items-center gap-2 overflow-hidden">
-                    {selectedFile.type.startsWith('image/') ? (
-                        <ImageIcon className="h-5 w-5 text-muted-foreground" />
-                    ) : selectedFile.type.startsWith('video/') ? (
-                        <Video className="h-5 w-5 text-muted-foreground" />
-                    ) : selectedFile.type.startsWith('audio/') ? (
-                        <Mic className="h-5 w-5 text-muted-foreground" />
-                    ) : (
-                        <FileText className="h-5 w-5 text-muted-foreground" />
-                    )}
-                    <p className="truncate text-muted-foreground">{selectedFile.name}</p>
-                </div>
-                <Button variant="ghost" size="icon" onClick={() => { setSelectedFile(null); if(fileInputRef.current) fileInputRef.current.value = ""; }}><X className="h-4 w-4" /></Button>
-            </motion.div>
-        )}
-
-        {replyTo && (
-            <div className="flex items-center justify-between rounded-md bg-secondary p-2 text-sm">
-                <div className="border-l-2 border-primary pl-2 overflow-hidden">
-                    <p className="font-semibold text-primary">Replying to {replyTo.sender_id === user?.id ? 'yourself' : getSenderProfile(replyTo.sender_id)?.display_name}</p>
-                    <p className="truncate">{replyTo.content || "Attachment"}</p>
-                </div>
-                <Button variant="ghost" size="icon" onClick={() => setReplyTo(null)}><X className="h-4 w-4" /></Button>
-            </div>
-        )}
-        </AnimatePresence>
+      <footer className="border-t p-2 md:p-4 bg-background/80 backdrop-blur-sm space-y-2">
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex w-full items-center space-x-2">
-         {recordingStatus === 'recording' ? (
-             <>
-                <Button variant="ghost" size="icon" type="button" onClick={cancelRecording}><Trash2 className="h-5 w-5 text-destructive" /></Button>
-                <div className="flex-1 flex items-center justify-center gap-2 font-mono text-red-500">
-                    <span className="relative flex h-3 w-3">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-                    </span>
-                    {new Date(recordingSeconds * 1000).toISOString().substr(14, 5)}
-                </div>
-                <Button type="button" size="icon" onClick={stopRecording}>
-                    <StopCircle className="h-6 w-6 text-primary" />
-                </Button>
-             </>
-         ) : (
-            <>
-                <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
-                <Button variant="ghost" size="icon" type="button" onClick={() => fileInputRef.current?.click()}><Paperclip className="h-5 w-5" /></Button>
-                <Button variant="ghost" size="icon" type="button" onClick={() => startRecording('video')}><Camera className="h-5 w-5" /></Button>
+            <div className="flex w-full items-center gap-2 rounded-full bg-muted p-1">
+                <Button variant="ghost" size="icon" type="button" className="rounded-full"><Smile className="h-6 w-6 text-muted-foreground" /></Button>
                 <Input 
                     {...form.register("content")}
-                    placeholder="Type your message..." 
-                    className="flex-1" 
+                    placeholder="Type something.." 
+                    className="flex-1 bg-transparent border-none focus-visible:ring-0 focus-visible:ring-offset-0 text-base h-10" 
                     autoComplete="off"
                     onChange={handleInputChange} 
                 />
-                <Button type={hasTextContent || selectedFile ? 'submit' : 'button'} size="icon" disabled={isSendDisabled && hasTextContent} onClick={!hasTextContent ? () => startRecording('audio') : undefined}>
-                    {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : (hasTextContent || selectedFile ? <Send className="h-5 w-5" /> : <Mic className="h-5 w-5" />)}
+                 <Button variant="ghost" size="icon" type="button" className="rounded-full"><Mic className="h-6 w-6 text-muted-foreground" /></Button>
+                 <Button type="submit" size="icon" disabled={isSendDisabled} className="rounded-full bg-primary h-10 w-10 shrink-0 text-primary-foreground">
+                    {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
                     <span className="sr-only">Send message</span>
                 </Button>
-            </>
-         )}
+            </div>
         </form>
       </footer>
        {user && chat && (
