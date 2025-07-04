@@ -7,7 +7,6 @@ import * as z from "zod";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -95,7 +94,7 @@ export default function ProfileSetupDialog({ open, onOpenChange }: ProfileSetupD
       
       await refreshProfile();
       onOpenChange(false);
-      router.push('/profile');
+      router.push('/chat');
 
     } catch (error: any) {
       console.error("Error setting up profile: ", error);
